@@ -1,0 +1,21 @@
+<resources>
+    <string name="app_name">Azroia Clean Care Pro</string>
+    <string name="brand_azr">AZR</string>
+    <string name="brand_subtitle">SYSTEM OPTIMIZATION SUITE</string>
+    <string name="tap_to_launch">TAP AZR CORE TO ENTER</string>
+    <string name="initializing_core">INITIALIZING AZR ENGINE…</string>
+
+    <string name="module_cache_title">Cache Clear</string>
+    <string name="module_cache_tag">APP CACHE ENGINE</string>
+    <string name="module_ram_title">RAM Optimize</string>
+    <string name="module_ram_tag">MEMORY TURBO</string>
+    <string name="module_storage_title">Storage Clear</string>
+    <string name="module_storage_tag">TURBO BOOST</string>
+    <string name="module_virus_title">Zero Virus</string>
+    <string name="module_virus_tag">THREAT SHIELD</string>
+    <string name="module_battery_title">VoltCore Guard</string>
+    <string name="module_battery_tag">BATTERY HEALTH PRO</string>
+
+    <string name="back_cd">Navigate back</string>
+    <string name="azr_logo_cd">AZR Azroia Clean Care Pro emblem</string>
+</resources>

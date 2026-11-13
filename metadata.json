@@ -1,0 +1,6 @@
+{
+  "name": "Azroia Clean Care Pro",
+  "description": "Futuristic Android optimizer featuring an animated AZR launch emblem, Cache Clear, RAM Optimization, Storage Boost, Zero Virus Shield, and VoltCore Battery Guard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
