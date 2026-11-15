@@ -1,0 +1,73 @@
+name: Build & Release Azroia Clean Care Pro APK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle 9.3.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.3.1"
+
+      - name: Ensure debug keystore exists
+        run: |
+          if [ ! -f debug.keystore ]; then
+            if [ -f debug.keystore.base64 ]; then
+              base64 -d debug.keystore.base64 > debug.keystore
+            else
+              keytool -genkeypair -noprompt \
+                -keystore debug.keystore \
+                -storepass android \
+                -alias androiddebugkey \
+                -keypass android \
+                -keyalg RSA \
+                -keysize 2048 \
+                -validity 10000 \
+                -dname "CN=Android Debug,O=Android,C=US"
+            fi
+          fi
+
+      - name: Run unit tests
+        run: gradle :app:testDebugUnitTest --no-daemon
+
+      - name: Build Debug APK
+        run: gradle :app:assembleDebug --no-daemon
+
+      - name: Copy APK with clean release filename
+        run: |
+          mkdir -p release-artifacts
+          cp app/build/outputs/apk/debug/app-debug.apk release-artifacts/AzroiaCleanCarePro-v1.0.${{ github.run_number }}.apk
+
+      - name: Upload APK as Workflow Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AzroiaCleanCarePro-APK
+          path: release-artifacts/*.apk
+
+      - name: Publish APK to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Azroia Clean Care Pro v1.0.${{ github.run_number }}
+          body: Automated Android APK build for Azroia Clean Care Pro.
+          files: release-artifacts/*.apk
