@@ -103,6 +103,9 @@ fun AzroiaAppRoot(
                     CleanerModule.STORAGE -> StorageBoostScreen(
                         uiState = uiState,
                         onBoostStorage = viewModel::runStorageBoost,
+                        onScanTempFiles = viewModel::scanPhoneTempFiles,
+                        onToggleTempFile = viewModel::toggleTempFileSelection,
+                        onCleanSelectedTempFiles = viewModel::cleanSelectedTempFiles,
                         onBack = viewModel::navigateBackToDashboard
                     )
 

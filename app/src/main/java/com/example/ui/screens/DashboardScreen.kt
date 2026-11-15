@@ -62,7 +62,12 @@ fun DashboardScreen(
 
     val storage = uiState.storageTelemetry
     val storageRatio = (storage.usedPercent / 100f).coerceIn(0.1f, 1f)
-    val storageStatus = "${storage.usedPercent}% used • Boost"
+    val tempCount = uiState.tempFiles.size
+    val storageStatus = if (tempCount > 0) {
+        "${storage.usedPercent}% used • $tempCount temp"
+    } else {
+        "${storage.usedPercent}% used • Temp & Boost"
+    }
 
     val bat = uiState.batteryTelemetry
     val tempStr = String.format(Locale.US, "%.1f°C", bat.temperatureCelsius)

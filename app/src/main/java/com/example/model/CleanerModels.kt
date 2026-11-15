@@ -88,6 +88,24 @@ data class StorageTelemetry(
     val lastBoostFreedBytes: Long = 0L
 )
 
+enum class TempFileCategory(val label: String) {
+    TEMP_CACHE("Temp / Cache"),
+    LOG_FILE("System Log"),
+    RESIDUAL_PART("Partial / Bak"),
+    EMPTY_FILE("0-Byte Junk")
+}
+
+data class TempFileEntry(
+    val id: String,
+    val name: String,
+    val locationLabel: String,
+    val sizeBytes: Long,
+    val category: TempFileCategory,
+    val isDocumentUri: Boolean,
+    val isSelected: Boolean = true,
+    val isDeleted: Boolean = false
+)
+
 enum class RiskLevel {
     SAFE,
     SUSPICIOUS,

@@ -15,12 +15,14 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import android.net.Uri
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Environment
 import android.os.Process
 import android.os.StatFs
 import android.os.storage.StorageManager
+import android.provider.DocumentsContract
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import com.example.model.AppCacheEntry
@@ -30,6 +32,8 @@ import com.example.model.RamTelemetry
 import com.example.model.RiskLevel
 import com.example.model.SecurityPosture
 import com.example.model.StorageTelemetry
+import com.example.model.TempFileCategory
+import com.example.model.TempFileEntry
 import com.example.model.VirusScanFinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
@@ -286,6 +290,174 @@ class SystemDiagnosticsRepository(private val context: Context) {
             totalAppCacheBytes = totalAppCacheBytes,
             lastBoostFreedBytes = freedOwn
         )
+    }
+
+    suspend fun scanTempFiles(treeUri: Uri? = null): List<TempFileEntry> = withContext(Dispatchers.IO) {
+        val found = mutableListOf<TempFileEntry>()
+
+        // 1. Accessible internal & external app cache/temp directories
+        val localRoots = listOfNotNull(
+            context.cacheDir?.let { it to "App Cache" },
+            context.codeCacheDir?.let { it to "Code Cache" },
+            context.externalCacheDir?.let { it to "External Cache" },
+            context.filesDir?.let { it to "App Files" },
+            context.getExternalFilesDir(null)?.let { it to "External Files" }
+        )
+
+        for ((root, label) in localRoots) {
+            val isCacheRoot = label.contains("Cache")
+            collectLocalTempFiles(root, label, isCacheRoot, found, depth = 0)
+        }
+
+        // 2. Selected phone storage folder via Storage Access Framework (SAF)
+        if (treeUri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    treeUri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            }
+            val rootDocId = DocumentsContract.getTreeDocumentId(treeUri)
+            collectSafTempFiles(
+                treeUri = treeUri,
+                parentDocId = rootDocId,
+                folderLabel = "Phone Storage",
+                out = found,
+                depth = 0
+            )
+        }
+
+        found.sortedByDescending { it.sizeBytes }
+    }
+
+    suspend fun cleanSelectedTempFiles(entries: List<TempFileEntry>): Pair<Int, Long> =
+        withContext(Dispatchers.IO) {
+            var deletedCount = 0
+            var freedBytes = 0L
+            for (entry in entries) {
+                if (!entry.isSelected || entry.isDeleted) continue
+                val success = if (entry.isDocumentUri) {
+                    runCatching {
+                        DocumentsContract.deleteDocument(context.contentResolver, Uri.parse(entry.id))
+                    }.getOrDefault(false)
+                } else {
+                    runCatching { File(entry.id).delete() }.getOrDefault(false)
+                }
+                if (success) {
+                    deletedCount++
+                    freedBytes += entry.sizeBytes
+                }
+            }
+            deletedCount to freedBytes
+        }
+
+    private fun collectLocalTempFiles(
+        dir: File,
+        label: String,
+        isCacheRoot: Boolean,
+        out: MutableList<TempFileEntry>,
+        depth: Int
+    ) {
+        if (depth > 4 || !dir.exists() || out.size >= 150) return
+        dir.listFiles()?.forEach { child ->
+            if (out.size >= 150) return@forEach
+            if (child.isDirectory) {
+                collectLocalTempFiles(child, "$label/${child.name}", isCacheRoot, out, depth + 1)
+            } else {
+                val category = classifyTempFile(child.name, child.length(), isCacheRoot)
+                if (category != null) {
+                    out.add(
+                        TempFileEntry(
+                            id = child.absolutePath,
+                            name = child.name,
+                            locationLabel = label,
+                            sizeBytes = child.length(),
+                            category = category,
+                            isDocumentUri = false
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private fun collectSafTempFiles(
+        treeUri: Uri,
+        parentDocId: String,
+        folderLabel: String,
+        out: MutableList<TempFileEntry>,
+        depth: Int
+    ) {
+        if (depth > 3 || out.size >= 180) return
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocId)
+        val projection = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+            DocumentsContract.Document.COLUMN_SIZE
+        )
+        runCatching {
+            context.contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
+                val idIdx = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+                val nameIdx = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                val mimeIdx = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
+                val sizeIdx = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE)
+
+                while (cursor.moveToNext() && out.size < 180) {
+                    val docId = cursor.getString(idIdx) ?: continue
+                    val name = cursor.getString(nameIdx) ?: continue
+                    val mime = cursor.getString(mimeIdx) ?: ""
+                    val size = if (!cursor.isNull(sizeIdx)) cursor.getLong(sizeIdx) else 0L
+
+                    if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
+                        val isCacheDir = name.equals("cache", true) ||
+                            name.equals(".thumbnails", true) ||
+                            name.equals("temp", true) ||
+                            name.equals("tmp", true)
+                        if (isCacheDir || depth < 2) {
+                            collectSafTempFiles(treeUri, docId, "$folderLabel/$name", out, depth + 1)
+                        }
+                    } else {
+                        val isInCache = folderLabel.contains("cache", ignoreCase = true) ||
+                            folderLabel.contains(".thumbnails", ignoreCase = true) ||
+                            folderLabel.contains("/temp", ignoreCase = true) ||
+                            folderLabel.contains("/tmp", ignoreCase = true)
+                        val category = classifyTempFile(name, size, isInCache)
+                        if (category != null) {
+                            val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+                            out.add(
+                                TempFileEntry(
+                                    id = docUri.toString(),
+                                    name = name,
+                                    locationLabel = folderLabel,
+                                    sizeBytes = size,
+                                    category = category,
+                                    isDocumentUri = true
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun classifyTempFile(
+        fileName: String,
+        sizeBytes: Long,
+        insideCacheFolder: Boolean
+    ): TempFileCategory? {
+        val lower = fileName.lowercase()
+        return when {
+            lower.endsWith(".tmp") || lower.endsWith(".temp") || lower.endsWith(".cache") ||
+                lower == "thumbs.db" || lower == ".ds_store" -> TempFileCategory.TEMP_CACHE
+            lower.endsWith(".log") || lower.endsWith(".tombstone") -> TempFileCategory.LOG_FILE
+            lower.endsWith(".bak") || lower.endsWith(".part") || lower.endsWith(".crdownload") ||
+                lower.endsWith(".chk") || lower.startsWith("~") -> TempFileCategory.RESIDUAL_PART
+            sizeBytes == 0L -> TempFileCategory.EMPTY_FILE
+            insideCacheFolder -> TempFileCategory.TEMP_CACHE
+            else -> null
+        }
     }
 
     suspend fun runDeepVirusHunt(onProgress: suspend (String, String, Int, Int) -> Unit): SecurityPosture =

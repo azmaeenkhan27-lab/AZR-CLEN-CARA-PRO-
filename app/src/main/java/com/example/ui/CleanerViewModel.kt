@@ -1,6 +1,7 @@
 package com.example.ui
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.SystemDiagnosticsRepository
@@ -14,6 +15,7 @@ import com.example.model.RiskLevel
 import com.example.model.ScreenRoute
 import com.example.model.SecurityPosture
 import com.example.model.StorageTelemetry
+import com.example.model.TempFileEntry
 import com.example.util.formatBytes
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,11 +48,17 @@ data class AzroiaUiState(
     val isOptimizingRam: Boolean = false,
     val ramStatusMessage: String? = null,
 
-    // Module 3: Storage Clear & Boost
+    // Module 3: Storage Clear, Boost & Phone Temporary File Cleaner
     val storageTelemetry: StorageTelemetry = StorageTelemetry(),
     val isBoostingStorage: Boolean = false,
     val storageBoostProgress: Float = 0f,
     val storageStatusMessage: String? = null,
+    val tempFiles: List<TempFileEntry> = emptyList(),
+    val scannedFolderUri: Uri? = null,
+    val isScanningTempFiles: Boolean = false,
+    val isCleaningTempFiles: Boolean = false,
+    val tempFilesStatusMessage: String? = null,
+    val lastTempFreedBytes: Long = 0L,
 
     // Module 4: Zero Virus Deep Shield
     val securityPosture: SecurityPosture = SecurityPosture(),
@@ -382,6 +390,7 @@ class CleanerViewModel(application: Application) : AndroidViewModel(application)
 
             val totalAppCache = _uiState.value.totalDetectedAppCacheBytes
             val updatedStorage = repo.executeStorageBoost(totalAppCache)
+            val refreshedTemps = repo.scanTempFiles(_uiState.value.scannedFolderUri)
             val freedLabel = formatBytes(updatedStorage.lastBoostFreedBytes)
             _uiState.update {
                 it.copy(
@@ -389,7 +398,74 @@ class CleanerViewModel(application: Application) : AndroidViewModel(application)
                     storageBoostProgress = 1f,
                     storageTelemetry = updatedStorage,
                     ownAppCacheBytes = updatedStorage.cleanableOwnCacheBytes,
+                    tempFiles = refreshedTemps,
                     storageStatusMessage = "Turbo Boost Complete • $freedLabel swept • ${formatBytes(updatedStorage.freeBytes)} Free"
+                )
+            }
+        }
+    }
+
+    fun scanPhoneTempFiles(treeUri: Uri? = _uiState.value.scannedFolderUri) {
+        if (_uiState.value.isScanningTempFiles) return
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isScanningTempFiles = true,
+                    scannedFolderUri = treeUri ?: it.scannedFolderUri,
+                    tempFilesStatusMessage = "Scanning for .tmp, .log, .bak, .part & 0-byte temp files..."
+                )
+            }
+            val files = repo.scanTempFiles(treeUri ?: _uiState.value.scannedFolderUri)
+            val totalSize = files.sumOf { it.sizeBytes }
+            val msg = if (files.isEmpty()) {
+                "No temporary files found in scanned locations"
+            } else {
+                "Found ${files.size} temporary file(s) (${formatBytes(totalSize)})"
+            }
+            _uiState.update {
+                it.copy(
+                    isScanningTempFiles = false,
+                    tempFiles = files,
+                    tempFilesStatusMessage = msg
+                )
+            }
+        }
+    }
+
+    fun toggleTempFileSelection(id: String) {
+        _uiState.update { state ->
+            state.copy(
+                tempFiles = state.tempFiles.map {
+                    if (it.id == id) it.copy(isSelected = !it.isSelected) else it
+                }
+            )
+        }
+    }
+
+    fun cleanSelectedTempFiles() {
+        val state = _uiState.value
+        if (state.isCleaningTempFiles) return
+        val selected = state.tempFiles.filter { it.isSelected && !it.isDeleted }
+        if (selected.isEmpty()) return
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isCleaningTempFiles = true,
+                    tempFilesStatusMessage = "Deleting ${selected.size} temporary file(s)..."
+                )
+            }
+            val (deletedCount, freedBytes) = repo.cleanSelectedTempFiles(selected)
+            val remaining = repo.scanTempFiles(state.scannedFolderUri)
+            val updatedStorage = repo.loadStorageTelemetry(state.totalDetectedAppCacheBytes)
+            _uiState.update {
+                it.copy(
+                    isCleaningTempFiles = false,
+                    tempFiles = remaining,
+                    storageTelemetry = updatedStorage,
+                    ownAppCacheBytes = updatedStorage.cleanableOwnCacheBytes,
+                    lastTempFreedBytes = it.lastTempFreedBytes + freedBytes,
+                    tempFilesStatusMessage = "Cleaned $deletedCount temporary file(s) • Freed ${formatBytes(freedBytes)}"
                 )
             }
         }
