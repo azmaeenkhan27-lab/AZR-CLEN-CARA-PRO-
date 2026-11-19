@@ -18,4 +18,6 @@
 
     <string name="back_cd">Navigate back</string>
     <string name="azr_logo_cd">AZR Azroia Clean Care Pro emblem</string>
+    <string name="accessibility_auto_cache_label">Azroia Auto Cache Cleaner</string>
+    <string name="accessibility_auto_cache_description">Automates App Info actions (Storage &amp; cache → Clear cache, or Force stop during user-initiated RAM Deep Hibernate) in Azroia Clean Care Pro. Only active during an explicit user-started optimization session and never accesses personal app content or clears user data.</string>
 </resources>

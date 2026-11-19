@@ -85,17 +85,47 @@ fun AzroiaAppRoot(
                     CleanerModule.CACHE -> CacheClearScreen(
                         uiState = uiState,
                         onRunCacheSweep = viewModel::runCacheSweepOnly,
+                        onStartUsedAndCachedClean = viewModel::startAutoUsedAndCachedAppsClean,
+                        onStartAutoAllAppsClean = viewModel::startAutoAllAppsCacheClean,
+                        onStartAutoSelectedClean = viewModel::startAutoSelectedAppsCacheClean,
+                        onStartOverThresholdClean = viewModel::startOverThresholdAutoClean,
+                        onToggleAppSelection = viewModel::toggleCacheAppSelection,
+                        onSelectAllApps = viewModel::selectAllCacheApps,
+                        onApplySelectionPreset = viewModel::applyCacheSelectionPreset,
+                        onSelectThreshold = viewModel::setCacheAlertThreshold,
+                        onToggleSkipZeroCache = viewModel::setSkipZeroCacheAutoClean,
+                        onToggleWhitelist = viewModel::toggleCacheWhitelist,
+                        onInspectApp = viewModel::inspectCacheApp,
+                        onClearCacheHistory = viewModel::clearCacheCleanHistory,
+                        onCleanSingleApp = viewModel::cleanSingleAppAutoOrGuided,
                         onStartSequentialClean = viewModel::startSequentialAppSettingsClean,
                         onLaunchNextGuidedApp = viewModel::launchNextGuidedApp,
                         onStopSequentialClean = viewModel::stopSequentialQueue,
+                        onDismissAccessibilityPrompt = viewModel::dismissAccessibilityPrompt,
+                        onDismissUsageAccessDialog = viewModel::dismissUsageAccessDialog,
                         onConsumePendingSettingsPkg = viewModel::consumePendingOpenSettingsPackage,
-                        onSystemClearLaunched = viewModel::markAppCacheSystemActionLaunched,
                         onBack = viewModel::navigateBackToDashboard
                     )
 
                     CleanerModule.RAM -> RamOptimizerScreen(
                         uiState = uiState,
                         onToggleAppSelection = viewModel::toggleRamAppSelection,
+                        onSelectBoostMode = viewModel::selectRamBoostMode,
+                        onSelectThreshold = viewModel::selectRamPressureThreshold,
+                        onToggleLiveMonitor = viewModel::toggleLiveRamMonitor,
+                        onCompactHeap = viewModel::runHeapAndBufferCompact,
+                        onStartDeepHibernate = viewModel::startDeepHibernateQueue,
+                        onStartGuidedHibernateFallback = viewModel::startGuidedHibernateFallback,
+                        onHibernateSingleApp = viewModel::hibernateSingleApp,
+                        onLaunchNextHibernateApp = viewModel::launchNextHibernateApp,
+                        onStopHibernateQueue = viewModel::stopRamHibernateQueue,
+                        onDismissRamAccessibilityPrompt = viewModel::dismissRamAccessibilityPrompt,
+                        onConsumePendingSettingsPkg = viewModel::consumePendingOpenSettingsPackage,
+                        onInspectRamApp = viewModel::inspectRamApp,
+                        onApplyPreset = viewModel::applyRamSelectionPreset,
+                        onToggleWhitelist = viewModel::toggleRamWhitelist,
+                        onRefreshProcesses = viewModel::refreshRamProcesses,
+                        onClearHistory = viewModel::clearRamBoostHistory,
                         onOptimizeRam = viewModel::runRamOptimization,
                         onBack = viewModel::navigateBackToDashboard
                     )
@@ -103,15 +133,28 @@ fun AzroiaAppRoot(
                     CleanerModule.STORAGE -> StorageBoostScreen(
                         uiState = uiState,
                         onBoostStorage = viewModel::runStorageBoost,
+                        onSelectBoostMode = viewModel::selectStorageBoostMode,
+                        onToggleIncludeApksInBoost = viewModel::setIncludeApksInStorageBoost,
+                        onToggleAutoSweepSafInBoost = viewModel::setAutoSweepSafInBoost,
+                        onTriggerAutoAppCacheClean = {
+                            viewModel.openModule(CleanerModule.CACHE)
+                            viewModel.startAutoUsedAndCachedAppsClean()
+                        },
                         onScanTempFiles = viewModel::scanPhoneTempFiles,
+                        onSelectLargeThreshold = viewModel::setStorageLargeThreshold,
+                        onApplyStoragePreset = viewModel::applyStorageSelectionPreset,
+                        onClearStorageHistory = viewModel::clearStorageCleanHistory,
                         onToggleTempFile = viewModel::toggleTempFileSelection,
                         onCleanSelectedTempFiles = viewModel::cleanSelectedTempFiles,
+                        onCleanSingleApp = viewModel::cleanSingleAppAutoOrGuided,
+                        onConsumePendingSettingsPkg = viewModel::consumePendingOpenSettingsPackage,
                         onBack = viewModel::navigateBackToDashboard
                     )
 
                     CleanerModule.VIRUS -> ZeroVirusScreen(
                         uiState = uiState,
                         onStartScan = viewModel::runZeroVirusScan,
+                        onToggleAutoDeleteUnnecessary = viewModel::setAutoDeleteUnnecessaryFiles,
                         onNeutralizeThreats = viewModel::neutralizeDetectedThreats,
                         onBack = viewModel::navigateBackToDashboard
                     )
@@ -119,6 +162,13 @@ fun AzroiaAppRoot(
                     CleanerModule.BATTERY -> BatteryGuardScreen(
                         uiState = uiState,
                         onSelectBatteryMode = viewModel::selectBatteryMode,
+                        onToggleBatteryOptimization = viewModel::toggleBatteryOptimizationEnabled,
+                        onToggleAutoCleanCacheForBattery = viewModel::toggleAutoCleanCacheForBattery,
+                        onRunBatteryAutoCacheSweep = viewModel::runBatteryAutoCacheSweep,
+                        onTriggerAutoAppCacheClean = {
+                            viewModel.openModule(CleanerModule.CACHE)
+                            viewModel.startAutoUsedAndCachedAppsClean()
+                        },
                         onOptimizeBattery = viewModel::runBatteryOptimization,
                         onBack = viewModel::navigateBackToDashboard
                     )

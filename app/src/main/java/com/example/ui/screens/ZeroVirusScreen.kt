@@ -3,8 +3,11 @@ package com.example.ui.screens
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,33 +26,54 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Android
+import androidx.compose.material.icons.filled.AutoDelete
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.GppGood
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.model.CleanerModule
 import com.example.model.RiskLevel
 import com.example.model.VirusScanFinding
@@ -61,17 +85,28 @@ import com.example.ui.theme.CyberBorderMuted
 import com.example.ui.theme.ElectricCrimson
 import com.example.ui.theme.EmeraldPulse
 import com.example.ui.theme.HyperViolet
+import com.example.ui.theme.NeonCyan
 import com.example.ui.theme.ObsidianCard
 import com.example.ui.theme.ObsidianCardElevated
 import com.example.ui.theme.ObsidianVoid
 import com.example.ui.theme.SolarAmber
+import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
+import com.example.util.formatBytes
+
+private enum class VirusFilterTab(val label: String) {
+    ALL("All"),
+    THREATS("Threats"),
+    HIDDEN("Hidden"),
+    SAFE("Safe")
+}
 
 @Composable
 fun ZeroVirusScreen(
     uiState: AzroiaUiState,
     onStartScan: () -> Unit,
+    onToggleAutoDeleteUnnecessary: (Boolean) -> Unit,
     onNeutralizeThreats: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
@@ -80,6 +115,26 @@ fun ZeroVirusScreen(
     val context = LocalContext.current
     val sec = uiState.securityPosture
     val totalFlagged = sec.criticalCount + sec.suspiciousCount
+
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var selectedFilter by rememberSaveable { mutableStateOf(VirusFilterTab.ALL) }
+    var showDeletedNames by rememberSaveable { mutableStateOf(false) }
+
+    val filteredFindings = remember(sec.findings, searchQuery, selectedFilter) {
+        val q = searchQuery.trim().lowercase()
+        sec.findings.filter { finding ->
+            val matchesQ = q.isBlank() ||
+                finding.appName.lowercase().contains(q) ||
+                finding.packageName.lowercase().contains(q)
+            val matchesTab = when (selectedFilter) {
+                VirusFilterTab.ALL -> true
+                VirusFilterTab.THREATS -> finding.riskLevel != RiskLevel.SAFE
+                VirusFilterTab.HIDDEN -> finding.isHiddenPackage
+                VirusFilterTab.SAFE -> finding.riskLevel == RiskLevel.SAFE
+            }
+            matchesQ && matchesTab
+        }
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
         CyberBackdrop()
@@ -104,11 +159,19 @@ fun ZeroVirusScreen(
                 contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
+                // 1. Zero Virus Radar Hero + Auto-Scan & Auto-Delete Control
                 item {
                     Surface(
                         color = ObsidianCard,
                         shape = RoundedCornerShape(24.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.2.dp, ElectricCrimson.copy(alpha = 0.6f))
+                        border = BorderStroke(
+                            1.2.dp,
+                            if (sec.lastScanCompleted && totalFlagged == 0) {
+                                EmeraldPulse.copy(alpha = 0.65f)
+                            } else {
+                                ElectricCrimson.copy(alpha = 0.6f)
+                            }
+                        )
                     ) {
                         Column(
                             modifier = Modifier
@@ -119,13 +182,13 @@ fun ZeroVirusScreen(
                             val centerVal = when {
                                 uiState.isScanningVirus -> "${(uiState.virusScanProgress * 100).toInt()}%"
                                 !sec.lastScanCompleted -> "HUNT"
-                                totalFlagged == 0 -> "ZERO"
+                                totalFlagged == 0 -> "${sec.threatDefenseScore}"
                                 else -> "$totalFlagged"
                             }
                             val centerUnit = when {
                                 uiState.isScanningVirus -> "DEEP AUDIT"
                                 !sec.lastScanCompleted -> "ALL LAYERS"
-                                totalFlagged == 0 -> "THREATS"
+                                totalFlagged == 0 -> "SHIELD SCORE"
                                 else -> "FLAGGED"
                             }
 
@@ -148,7 +211,7 @@ fun ZeroVirusScreen(
                                         .height(6.dp)
                                         .clip(RoundedCornerShape(50)),
                                     color = ElectricCrimson,
-                                    trackColor = Color(0xFF1F162C),
+                                    trackColor = CyberBorderMuted,
                                     strokeCap = StrokeCap.Round
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
@@ -163,20 +226,84 @@ fun ZeroVirusScreen(
                             }
 
                             uiState.virusStatusMessage?.let { msg ->
-                                Text(
-                                    text = msg,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = if (totalFlagged == 0) EmeraldPulse else SolarAmber
-                                )
+                                Surface(
+                                    color = ObsidianVoid.copy(alpha = 0.72f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(
+                                        0.8.dp,
+                                        if (totalFlagged == 0) EmeraldPulse.copy(alpha = 0.45f) else SolarAmber.copy(alpha = 0.45f)
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = msg,
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.5.sp),
+                                        color = if (totalFlagged == 0) EmeraldPulse else SolarAmber,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                    )
+                                }
                                 Spacer(modifier = Modifier.height(10.dp))
                             }
+
+                            // Auto-Delete Unnecessary Files Toggle
+                            Surface(
+                                color = ObsidianVoid.copy(alpha = 0.75f),
+                                shape = RoundedCornerShape(14.dp),
+                                border = BorderStroke(1.dp, CyberBorderMuted),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.AutoDelete,
+                                            contentDescription = null,
+                                            tint = NeonCyan,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column {
+                                            Text(
+                                                text = "Auto-Delete Unnecessary Files",
+                                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                                color = TextPrimary
+                                            )
+                                            Text(
+                                                text = "Deletes residual .tmp, .log, .bak, .apk & junk on scan",
+                                                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.sp),
+                                                color = TextSecondary
+                                            )
+                                        }
+                                    }
+                                    Switch(
+                                        checked = uiState.autoDeleteUnnecessaryFiles,
+                                        onCheckedChange = onToggleAutoDeleteUnnecessary,
+                                        enabled = !uiState.isScanningVirus,
+                                        colors = SwitchDefaults.colors(
+                                            checkedThumbColor = ObsidianVoid,
+                                            checkedTrackColor = NeonCyan
+                                        ),
+                                        modifier = Modifier.testTag("virus_auto_delete_switch")
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
 
                             Button(
                                 onClick = onStartScan,
                                 enabled = !uiState.isScanningVirus,
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = ElectricCrimson,
-                                    contentColor = Color.White
+                                    contentColor = TextPrimary
                                 ),
                                 shape = RoundedCornerShape(16.dp),
                                 modifier = Modifier
@@ -187,7 +314,11 @@ fun ZeroVirusScreen(
                                 Icon(Icons.Filled.Security, contentDescription = null)
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Text(
-                                    text = if (uiState.isScanningVirus) "HUNTING HIDDEN THREATS…" else "DEEP HUNT & VIRUS SCAN",
+                                    text = if (uiState.isScanningVirus) {
+                                        "SCANNING & AUTO-DELETING JUNK…"
+                                    } else {
+                                        "DEEP HUNT & AUTO-CLEAN"
+                                    },
                                     style = MaterialTheme.typography.labelLarge
                                 )
                             }
@@ -197,7 +328,7 @@ fun ZeroVirusScreen(
                                 OutlinedButton(
                                     onClick = onNeutralizeThreats,
                                     enabled = !uiState.isNeutralizingThreats,
-                                    border = androidx.compose.foundation.BorderStroke(
+                                    border = BorderStroke(
                                         1.2.dp,
                                         if (totalFlagged > 0) SolarAmber else EmeraldPulse
                                     ),
@@ -214,7 +345,7 @@ fun ZeroVirusScreen(
                                             strokeWidth = 2.dp
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
-                                        Text("DESTROYING THREATS…", color = SolarAmber)
+                                        Text("NEUTRALIZING & PURGING…", color = SolarAmber)
                                     } else {
                                         Icon(
                                             imageVector = Icons.Filled.Shield,
@@ -223,7 +354,11 @@ fun ZeroVirusScreen(
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text(
-                                            text = if (totalFlagged > 0) "NEUTRALIZE & PURGE THREATS" else "PURGE RESIDUAL ARTIFACTS",
+                                            text = if (totalFlagged > 0) {
+                                                "NEUTRALIZE THREATS & PURGE JUNK"
+                                            } else {
+                                                "DEEP PURGE RESIDUAL ARTIFACTS"
+                                            },
                                             style = MaterialTheme.typography.labelLarge,
                                             color = if (totalFlagged > 0) SolarAmber else EmeraldPulse
                                         )
@@ -234,15 +369,108 @@ fun ZeroVirusScreen(
                     }
                 }
 
+                // 2. Auto-Deleted Unnecessary Files Report Card
                 if (sec.lastScanCompleted) {
+                    item {
+                        Surface(
+                            color = ObsidianCard,
+                            shape = RoundedCornerShape(18.dp),
+                            border = BorderStroke(1.dp, EmeraldPulse.copy(alpha = 0.45f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("virus_auto_deleted_report_card")
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable(enabled = sec.deletedFileNames.isNotEmpty()) {
+                                            showDeletedNames = !showDeletedNames
+                                        },
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.CheckCircle,
+                                            contentDescription = null,
+                                            tint = EmeraldPulse,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column {
+                                            Text(
+                                                text = "AUTO-DELETED UNNECESSARY FILES",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = EmeraldPulse
+                                            )
+                                            Text(
+                                                text = "${sec.autoDeletedFilesCount} file(s) purged • ${formatBytes(sec.autoDeletedBytes)} freed • ${sec.scanDurationMs}ms",
+                                                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.5.sp),
+                                                color = TextSecondary
+                                            )
+                                        }
+                                    }
+                                    if (sec.deletedFileNames.isNotEmpty()) {
+                                        Icon(
+                                            imageVector = Icons.Filled.KeyboardArrowDown,
+                                            contentDescription = "Toggle deleted files list",
+                                            tint = EmeraldPulse,
+                                            modifier = Modifier
+                                                .size(22.dp)
+                                                .rotate(if (showDeletedNames) 180f else 0f)
+                                        )
+                                    }
+                                }
+
+                                if (showDeletedNames && sec.deletedFileNames.isNotEmpty()) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(ObsidianVoid.copy(alpha = 0.72f))
+                                            .padding(10.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        sec.deletedFileNames.forEach { fileName ->
+                                            Text(
+                                                text = "✓ Deleted: $fileName",
+                                                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.5.sp),
+                                                color = EmeraldPulse,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 3. 4-Column Security Metrics Grid
                     item {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             SecurityMetricBox("SCANNED", "${sec.scannedCount}", TextPrimary, Modifier.weight(1f))
                             SecurityMetricBox("HIDDEN", "${sec.hiddenCount}", HyperViolet, Modifier.weight(1f))
-                            SecurityMetricBox("FLAGGED", "$totalFlagged", if (totalFlagged == 0) EmeraldPulse else ElectricCrimson, Modifier.weight(1f))
+                            SecurityMetricBox(
+                                "FLAGGED",
+                                "$totalFlagged",
+                                if (totalFlagged == 0) EmeraldPulse else ElectricCrimson,
+                                Modifier.weight(1f)
+                            )
+                            SecurityMetricBox("JUNK DEL", "${sec.autoDeletedFilesCount}", NeonCyan, Modifier.weight(1f))
                         }
                     }
 
@@ -250,7 +478,7 @@ fun ZeroVirusScreen(
                         Surface(
                             color = ObsidianCard,
                             shape = RoundedCornerShape(18.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, CyberBorderMuted)
+                            border = BorderStroke(1.dp, CyberBorderMuted)
                         ) {
                             Row(
                                 modifier = Modifier
@@ -274,16 +502,88 @@ fun ZeroVirusScreen(
                         }
                     }
 
+                    // 4. Filter & Search Results
                     item {
-                        Text(
-                            text = "DEEP PACKAGE & HIDDEN LAYER RESULTS (${sec.findings.size})",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = ElectricCrimson,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                placeholder = {
+                                    Text(
+                                        text = "Search scanned apps or packages...",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = TextMuted
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.Search, contentDescription = null, tint = ElectricCrimson)
+                                },
+                                trailingIcon = {
+                                    if (searchQuery.isNotEmpty()) {
+                                        IconButton(onClick = { searchQuery = "" }) {
+                                            Icon(Icons.Filled.Close, contentDescription = "Clear search", tint = TextSecondary)
+                                        }
+                                    }
+                                },
+                                singleLine = true,
+                                shape = RoundedCornerShape(14.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = ElectricCrimson,
+                                    unfocusedBorderColor = CyberBorderMuted,
+                                    focusedTextColor = TextPrimary,
+                                    unfocusedTextColor = TextPrimary,
+                                    focusedContainerColor = ObsidianVoid,
+                                    unfocusedContainerColor = ObsidianVoid
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("virus_search_input")
+                            )
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                VirusFilterTab.entries.forEach { tab ->
+                                    val isSelected = selectedFilter == tab
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = { selectedFilter = tab },
+                                        label = {
+                                            Text(
+                                                text = tab.label,
+                                                style = MaterialTheme.typography.labelSmall
+                                            )
+                                        },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = ElectricCrimson.copy(alpha = 0.22f),
+                                            selectedLabelColor = ElectricCrimson,
+                                            containerColor = ObsidianVoid,
+                                            labelColor = TextSecondary
+                                        ),
+                                        border = FilterChipDefaults.filterChipBorder(
+                                            enabled = true,
+                                            selected = isSelected,
+                                            borderColor = CyberBorderMuted,
+                                            selectedBorderColor = ElectricCrimson
+                                        ),
+                                        modifier = Modifier.testTag("virus_filter_${tab.name.lowercase()}")
+                                    )
+                                }
+                            }
+
+                            Text(
+                                text = "DEEP PACKAGE & HIDDEN LAYER RESULTS (${filteredFindings.size}/${sec.findings.size})",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = ElectricCrimson,
+                                modifier = Modifier.padding(top = 2.dp)
+                            )
+                        }
                     }
 
-                    items(sec.findings, key = { it.packageName }) { finding ->
+                    items(filteredFindings, key = { it.packageName }) { finding ->
                         VirusFindingRow(
                             finding = finding,
                             onUninstall = {
@@ -308,16 +608,16 @@ private fun SecurityMetricBox(label: String, value: String, color: Color, modifi
     Surface(
         color = ObsidianCard,
         shape = RoundedCornerShape(16.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, CyberBorderMuted),
+        border = BorderStroke(1.dp, CyberBorderMuted),
         modifier = modifier
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.padding(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(label, style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+            Text(label, style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp), color = TextSecondary, maxLines = 1)
             Spacer(modifier = Modifier.height(4.dp))
-            Text(value, style = MaterialTheme.typography.titleLarge, color = color)
+            Text(value, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = color, maxLines = 1)
         }
     }
 }
@@ -336,7 +636,7 @@ private fun VirusFindingRow(
     Surface(
         color = ObsidianCard,
         shape = RoundedCornerShape(18.dp),
-        border = androidx.compose.foundation.BorderStroke(
+        border = BorderStroke(
             1.dp,
             if (finding.riskLevel == RiskLevel.SAFE) CyberBorderMuted else riskColor.copy(alpha = 0.7f)
         )
@@ -408,7 +708,7 @@ private fun VirusFindingRow(
             } else {
                 OutlinedButton(
                     onClick = onUninstall,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, riskColor),
+                    border = BorderStroke(1.dp, riskColor),
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                     modifier = Modifier.minimumInteractiveComponentSize()
                 ) {

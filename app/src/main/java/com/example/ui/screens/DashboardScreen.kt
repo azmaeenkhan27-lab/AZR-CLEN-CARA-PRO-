@@ -48,13 +48,10 @@ fun DashboardScreen(
     onReplayAzrLaunch: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val cacheLabel = if (uiState.totalDetectedAppCacheBytes > 0L) {
-        formatBytes(uiState.totalDetectedAppCacheBytes)
-    } else {
-        "${uiState.cacheEntries.size} Apps"
-    }
-    val cacheStatus = "${uiState.cacheEntries.size} apps • Sweep"
-    val cacheRatio = if (uiState.totalDetectedAppCacheBytes > 0L) 0.72f else 0.48f
+    val cacheLabel = formatBytes(uiState.totalDetectedAppCacheBytes)
+    val cacheStatus = "${uiState.cacheEntries.size} apps • Cached"
+    val cacheRemovedLine = "Removed: ${formatBytes(uiState.totalCacheFreedSessionBytes)}"
+    val cacheRatio = if (uiState.totalDetectedAppCacheBytes > 0L) 0.74f else 0.35f
 
     val ram = uiState.ramTelemetry
     val ramRatio = (ram.usedPercent / 100f).coerceIn(0.1f, 1f)
@@ -181,6 +178,7 @@ fun DashboardScreen(
                             metricValue = cacheLabel,
                             metricUnit = "CACHE",
                             statusLine = cacheStatus,
+                            secondaryStatusLine = cacheRemovedLine,
                             progressRatio = cacheRatio,
                             actionLabel = "CACHE",
                             tileSize = bigSquareSize,

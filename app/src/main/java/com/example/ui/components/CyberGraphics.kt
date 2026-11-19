@@ -517,7 +517,9 @@ fun SquareModuleSlideCard(
     actionLabel: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    tileSize: Dp? = null
+    tileSize: Dp? = null,
+    secondaryStatusLine: String? = null,
+    secondaryStatusColor: Color = EmeraldPulse
 ) {
     val accent = moduleAccentColor(module)
     val sizeModifier = if (tileSize != null) {
@@ -631,11 +633,24 @@ fun SquareModuleSlideCard(
                 )
                 Text(
                     text = statusLine,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.5.sp),
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.sp),
                     color = TextSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                if (secondaryStatusLine != null) {
+                    Text(
+                        text = secondaryStatusLine,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 0.2.sp
+                        ),
+                        color = secondaryStatusColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
     }
