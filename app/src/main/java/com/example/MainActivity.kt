@@ -104,7 +104,10 @@ fun AzroiaAppRoot(
                         onDismissAccessibilityPrompt = viewModel::dismissAccessibilityPrompt,
                         onDismissUsageAccessDialog = viewModel::dismissUsageAccessDialog,
                         onConsumePendingSettingsPkg = viewModel::consumePendingOpenSettingsPackage,
-                        onBack = viewModel::navigateBackToDashboard
+                        onBack = viewModel::navigateBackToDashboard,
+                        onSelectCacheMode = viewModel::selectCacheCleanMode,
+                        onExecuteCacheMode = viewModel::executeSelectedCacheMode,
+                        onFlushInternalBuffers = viewModel::flushInternalCacheBuffersNow
                     )
 
                     CleanerModule.RAM -> RamOptimizerScreen(

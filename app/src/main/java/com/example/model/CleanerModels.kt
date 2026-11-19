@@ -78,6 +78,12 @@ data class CacheAreaBreakdown(
         get() = (mediaSocialBytes + browserToolsBytes + otherAppsBytes + localBufferBytes).coerceAtLeast(0L)
 }
 
+enum class CacheCleanMode(val label: String, val detail: String) {
+    SMART_USED("Smart Used", "Cleans recently used apps with cache > 0 B, then auto-stops"),
+    DEEP_BUFFER("Deep Buffer", "Flushes internal Cache/Code/External/WAL buffers & trims SQLite"),
+    TURBO_SWEEP("Turbo Sweep", "Full non-shielded app auto-clean queue + deep buffer purge")
+}
+
 enum class CacheThresholdPreset(val label: String, val bytes: Long) {
     MB_50("50 MB", 50L * 1024L * 1024L),
     MB_150("150 MB", 150L * 1024L * 1024L),
@@ -88,7 +94,8 @@ enum class CacheThresholdPreset(val label: String, val bytes: Long) {
 enum class CacheSelectionPreset(val label: String) {
     OVER_THRESHOLD("Over Limit"),
     TOP_FIVE("Top 5 Hogs"),
-    MEDIA_ONLY("Media Hogs")
+    MEDIA_ONLY("Media Hogs"),
+    DORMANT_OLD("Dormant 7d+")
 }
 
 data class CacheCleanHistoryRecord(
@@ -109,6 +116,13 @@ data class InternalBufferBreakdown(
     val totalBytes: Long
         get() = (cacheDirBytes + codeCacheDirBytes + externalCacheDirBytes + tempLogsBytes).coerceAtLeast(0L)
 }
+
+data class CacheBufferFlushResult(
+    val freedBytes: Long = 0L,
+    val filesClearedCount: Int = 0,
+    val sqliteTrimmed: Boolean = true,
+    val breakdown: InternalBufferBreakdown = InternalBufferBreakdown()
+)
 
 enum class RamBoostMode(val label: String, val detail: String) {
     BALANCED("Balanced", "Clears idle & cached background apps safely"),
@@ -286,7 +300,9 @@ data class VirusScanFinding(
     val riskLevel: RiskLevel,
     val installerLabel: String,
     val isHiddenPackage: Boolean,
-    val riskReasons: List<String>
+    val riskReasons: List<String>,
+    val riskScore: Int = 0,
+    val isNeutralized: Boolean = false
 )
 
 data class SecurityPosture(
@@ -300,6 +316,9 @@ data class SecurityPosture(
     val autoDeletedFilesCount: Int = 0,
     val autoDeletedBytes: Long = 0L,
     val deletedFileNames: List<String> = emptyList(),
+    val autoDestroyedProcessesCount: Int = 0,
+    val destroyedThreatNames: List<String> = emptyList(),
+    val shreddedPayloadsCount: Int = 0,
     val scanDurationMs: Long = 0L,
     val findings: List<VirusScanFinding> = emptyList(),
     val lastScanCompleted: Boolean = false
@@ -307,10 +326,14 @@ data class SecurityPosture(
     val threatDefenseScore: Int
         get() {
             if (!lastScanCompleted) return 88
-            val critPenalty = (criticalCount * 16).coerceAtMost(50)
-            val suspPenalty = (suspiciousCount * 5).coerceAtMost(25)
+            val activeCrit = findings.count { it.riskLevel == RiskLevel.CRITICAL && !it.isNeutralized }
+            val activeSusp = findings.count { it.riskLevel == RiskLevel.SUSPICIOUS && !it.isNeutralized }
+            val effCrit = if (findings.isEmpty()) criticalCount else activeCrit
+            val effSusp = if (findings.isEmpty()) suspiciousCount else activeSusp
+            val critPenalty = (effCrit * 16).coerceAtMost(50)
+            val suspPenalty = (effSusp * 5).coerceAtMost(25)
             val lockBonus = if (isDeviceLockSecure) 4 else -6
-            val purgeBonus = if (autoDeletedFilesCount > 0 || localArtifactsPurged > 0) 4 else 0
+            val purgeBonus = if (autoDeletedFilesCount > 0 || localArtifactsPurged > 0 || autoDestroyedProcessesCount > 0) 4 else 0
             return (96 - critPenalty - suspPenalty + lockBonus + purgeBonus).coerceIn(20, 100)
         }
 }

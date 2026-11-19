@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -25,6 +27,7 @@ import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -34,6 +37,7 @@ import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -62,11 +66,15 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.model.AppCacheCleanState
 import com.example.model.AppCacheEntry
 import com.example.model.CacheCleanHistoryRecord
 import com.example.model.CacheSelectionPreset
@@ -101,7 +109,10 @@ fun SmartCacheGuardPanel(
     onApplyPreset: (CacheSelectionPreset) -> Unit,
     onToggleSkipZero: (Boolean) -> Unit,
     onCleanOverThreshold: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isFlushingBuffers: Boolean = false,
+    lastBufferFlushFreedBytes: Long = 0L,
+    onFlushBuffersNow: () -> Unit = {}
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
 
@@ -313,12 +324,27 @@ fun SmartCacheGuardPanel(
                     )
                 }
 
-                // Internal Buffer Directory Telemetry
-                Text(
-                    text = "AZROIA INTERNAL BUFFER BREAKDOWN",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = NeonCyan
-                )
+                // Internal Buffer Directory Telemetry + Instant Deep Flush
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "AZROIA INTERNAL BUFFER BREAKDOWN",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = NeonCyan
+                    )
+                    Text(
+                        text = if (lastBufferFlushFreedBytes > 0L) {
+                            "Last flush: +${formatBytes(lastBufferFlushFreedBytes)}"
+                        } else {
+                            formatBytes(internalBuffer.totalBytes)
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = EmeraldPulse
+                    )
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -327,6 +353,168 @@ fun SmartCacheGuardPanel(
                     InternalBufferCell("Code", formatBytes(internalBuffer.codeCacheDirBytes), HyperViolet, Modifier.weight(1f))
                     InternalBufferCell("External", formatBytes(internalBuffer.externalCacheDirBytes), SolarAmber, Modifier.weight(1f))
                     InternalBufferCell("Logs", formatBytes(internalBuffer.tempLogsBytes), EmeraldPulse, Modifier.weight(1f))
+                }
+                OutlinedButton(
+                    onClick = onFlushBuffersNow,
+                    enabled = !isFlushingBuffers,
+                    border = BorderStroke(1.1.dp, NeonCyan.copy(alpha = 0.7f)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
+                        .testTag("flush_internal_buffers_button")
+                ) {
+                    if (isFlushingBuffers) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            color = NeonCyan,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("FLUSHING BUFFERS & WAL…", color = NeonCyan, style = MaterialTheme.typography.labelLarge)
+                    } else {
+                        Icon(
+                            imageVector = Icons.Filled.CleaningServices,
+                            contentDescription = null,
+                            tint = NeonCyan,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("FLUSH INTERNAL BUFFERS & LOGS NOW", color = NeonCyan, style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TopCacheHogsVisualCard(
+    entries: List<AppCacheEntry>,
+    thresholdBytes: Long,
+    onInspectApp: (AppCacheEntry) -> Unit,
+    onQuickCleanApp: (AppCacheEntry) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val topHogs = entries
+        .filter { !it.isWhitelisted && it.cleanState != AppCacheCleanState.CLEANED && it.cacheBytes > 0L }
+        .sortedByDescending { it.cacheBytes }
+        .take(4)
+    if (topHogs.isEmpty()) return
+
+    val maxHog = topHogs.first().cacheBytes.coerceAtLeast(1L)
+    val totalHogBytes = topHogs.sumOf { it.cacheBytes }
+
+    Surface(
+        color = ObsidianCard,
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(1.2.dp, SolarAmber.copy(alpha = 0.55f)),
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("top_cache_hogs_visual_card")
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Filled.Bolt,
+                        contentDescription = null,
+                        tint = SolarAmber,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "TOP CACHE HOGS RADAR",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = SolarAmber
+                    )
+                }
+                Text(
+                    text = formatBytes(totalHogBytes),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = ElectricCrimson
+                )
+            }
+
+            topHogs.forEachIndexed { idx, app ->
+                val ratio = (app.cacheBytes.toFloat() / maxHog.toFloat()).coerceIn(0.12f, 1f)
+                val barColor = when {
+                    app.cacheBytes >= thresholdBytes -> ElectricCrimson
+                    idx == 0 -> WarningOrange
+                    else -> NeonCyan
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(ObsidianVoid.copy(alpha = 0.72f))
+                        .clickable { onInspectApp(app) }
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "${idx + 1}. ${app.appName}",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = formatBytes(app.cacheBytes),
+                            style = MaterialTheme.typography.labelLarge.copy(fontSize = 12.sp),
+                            color = barColor
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Surface(
+                            color = barColor.copy(alpha = 0.16f),
+                            shape = RoundedCornerShape(50),
+                            border = BorderStroke(0.8.dp, barColor.copy(alpha = 0.55f)),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .clickable { onQuickCleanApp(app) }
+                        ) {
+                            Text(
+                                text = "Clean",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                color = barColor,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
+
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(7.dp)
+                    ) {
+                        drawRoundRect(
+                            color = CyberBorderMuted.copy(alpha = 0.35f),
+                            cornerRadius = CornerRadius(size.height / 2f, size.height / 2f),
+                            size = size
+                        )
+                        val fillW = size.width * ratio
+                        drawRoundRect(
+                            brush = Brush.horizontalGradient(listOf(barColor.copy(alpha = 0.65f), barColor, Color.White.copy(alpha = 0.9f))),
+                            cornerRadius = CornerRadius(size.height / 2f, size.height / 2f),
+                            size = Size(fillW, size.height)
+                        )
+                    }
                 }
             }
         }
@@ -606,6 +794,8 @@ private fun CacheSavingsSparkCanvas(
                 val gap = 6.dp.toPx()
                 val barWidth = ((size.width - gap * (slots - 1)) / slots).coerceAtLeast(4.dp.toPx())
                 val offsetStart = slots - samples.size
+                val linePath = Path()
+                var hasLineStart = false
 
                 for (i in 0 until slots) {
                     val x = i * (barWidth + gap)
@@ -631,6 +821,29 @@ private fun CacheSavingsSparkCanvas(
                         topLeft = Offset(x, topY),
                         size = Size(barWidth, barH),
                         cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
+                    )
+
+                    if (record != null) {
+                        val centerPt = Offset(x + barWidth / 2f, topY)
+                        if (!hasLineStart) {
+                            linePath.moveTo(centerPt.x, centerPt.y)
+                            hasLineStart = true
+                        } else {
+                            linePath.lineTo(centerPt.x, centerPt.y)
+                        }
+                        drawCircle(
+                            color = Color.White.copy(alpha = 0.9f),
+                            radius = 2.4.dp.toPx(),
+                            center = centerPt
+                        )
+                    }
+                }
+
+                if (samples.size >= 2) {
+                    drawPath(
+                        path = linePath,
+                        color = SolarAmber.copy(alpha = 0.72f),
+                        style = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round)
                     )
                 }
             }
@@ -715,6 +928,36 @@ fun AppCacheInspectorSheet(
                         color = NeonCyan,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                // Glowing Radial Cache Ratio Mini-Gauge
+                Box(
+                    modifier = Modifier.size(54.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val gaugeColor = if (isOverLimit) ElectricCrimson else NeonCyan
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val sw = 5.dp.toPx()
+                        drawArc(
+                            color = CyberBorderMuted.copy(alpha = 0.45f),
+                            startAngle = 0f,
+                            sweepAngle = 360f,
+                            useCenter = false,
+                            style = Stroke(width = sw, cap = StrokeCap.Round)
+                        )
+                        drawArc(
+                            color = gaugeColor,
+                            startAngle = -90f,
+                            sweepAngle = (cacheRatioPct / 100f * 360f).coerceAtLeast(12f),
+                            useCenter = false,
+                            style = Stroke(width = sw, cap = StrokeCap.Round)
+                        )
+                    }
+                    Text(
+                        text = "$cacheRatioPct%",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                        color = if (isOverLimit) ElectricCrimson else NeonCyan
                     )
                 }
             }

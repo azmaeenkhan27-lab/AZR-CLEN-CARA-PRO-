@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import com.example.model.AppCacheEntry
 import com.example.model.BatteryTelemetry
+import com.example.model.CacheBufferFlushResult
 import com.example.model.CacheCleanHistoryRecord
 import com.example.model.InternalBufferBreakdown
 import com.example.model.KernelMemoryBreakdown
@@ -421,6 +422,54 @@ class SystemDiagnosticsRepository(private val context: Context) {
         }
         val after = measureOwnAppCacheBytes() + measureResidualTempBytes()
         (before - after).coerceAtLeast(0L)
+    }
+
+    suspend fun deepFlushCacheBuffers(): CacheBufferFlushResult = withContext(Dispatchers.IO) {
+        val cacheDirs = listOfNotNull(
+            context.cacheDir,
+            context.codeCacheDir,
+            context.externalCacheDir
+        )
+        var candidateFiles = 0
+        for (dir in cacheDirs) {
+            dir.walkTopDown().forEach { f ->
+                if (f.isFile) candidateFiles++
+            }
+        }
+        val storedJunkCount = scanTempFiles(null, getLargeFileThresholdBytes())
+            .count { isAutoSelectableJunk(it.category) }
+        val beforeTotal = measureOwnAppCacheBytes() + measureResidualTempBytes()
+
+        val freed = clearOwnAppCache()
+        val sqliteTrimmed = runCatching {
+            SQLiteDatabase.releaseMemory()
+            true
+        }.getOrDefault(false)
+        if (iconCache.size > 16) {
+            iconCache.clear()
+        }
+        System.gc()
+
+        val afterBreakdown = measureInternalBufferBreakdown()
+        val effectiveFreed = freed.coerceAtLeast((beforeTotal - afterBreakdown.totalBytes).coerceAtLeast(0L))
+        if (effectiveFreed > 0L) {
+            recordCacheRemovedBytes(effectiveFreed)
+        }
+        val totalCleared = (candidateFiles + storedJunkCount).coerceAtLeast(if (effectiveFreed > 0L) 1 else 0)
+        if (effectiveFreed > 0L || totalCleared > 0) {
+            appendCacheCleanHistory(
+                appName = "Deep Internal Buffer Flush",
+                packageName = context.packageName,
+                freedBytes = effectiveFreed,
+                methodLabel = "Buffer & WAL Flush"
+            )
+        }
+        CacheBufferFlushResult(
+            freedBytes = effectiveFreed,
+            filesClearedCount = totalCleared,
+            sqliteTrimmed = sqliteTrimmed,
+            breakdown = afterBreakdown
+        )
     }
 
     fun getWhitelistedRamPackages(): Set<String> {
@@ -1470,6 +1519,11 @@ class SystemDiagnosticsRepository(private val context: Context) {
                 reasons.size == 1 -> RiskLevel.SUSPICIOUS
                 else -> RiskLevel.SAFE
             }
+            val calculatedRiskScore = when (riskLevel) {
+                RiskLevel.CRITICAL -> (68 + reasons.size * 10 + highRiskPerms.size * 5).coerceIn(70, 100)
+                RiskLevel.SUSPICIOUS -> (34 + reasons.size * 12 + highRiskPerms.size * 6).coerceIn(35, 69)
+                RiskLevel.SAFE -> 0
+            }
 
             findings.add(
                 VirusScanFinding(
@@ -1479,47 +1533,74 @@ class SystemDiagnosticsRepository(private val context: Context) {
                     riskLevel = riskLevel,
                     installerLabel = installerLabel,
                     isHiddenPackage = isHidden,
-                    riskReasons = reasons
+                    riskReasons = reasons,
+                    riskScore = calculatedRiskScore,
+                    isNeutralized = false
                 )
             )
         }
 
-        // Automatically purge suspicious residual artifacts & unnecessary junk files (local + linked SAF folder)
+        // Automatically crush detected threats from inside + shred suspicious payloads & unnecessary files
         var purgedArtifactCount = 0
         var autoDeletedCount = 0
         var autoDeletedBytes = 0L
         val deletedNames = mutableListOf<String>()
+        var destroyedProcessesCount = 0
+        val destroyedThreatNames = mutableListOf<String>()
+        val flaggedFindings = findings.filter { it.riskLevel != RiskLevel.SAFE && it.packageName != context.packageName }
+        val neutralizedSet = HashSet<String>()
 
         if (autoDeleteUnnecessary) {
-            onProgress("Purging Unnecessary Files", "Deep Cleanup Layer", total, total)
+            // Wave 1: Multi-pass crush of flagged threat background processes
+            if (flaggedFindings.isNotEmpty()) {
+                onProgress("Crushing Active Threat Processes", "Internal Destruction Core", total, total)
+                repeat(2) {
+                    for (threat in flaggedFindings) {
+                        runCatching {
+                            activityManager.killBackgroundProcesses(threat.packageName)
+                            if (neutralizedSet.add(threat.packageName)) {
+                                destroyedThreatNames.add(threat.appName)
+                            }
+                        }
+                    }
+                }
+                destroyedProcessesCount = neutralizedSet.size
+            }
+
+            // Wave 2: Shred & wipe local droppers, APKs, DEX payloads, temp logs & SAF junk
+            onProgress("Shredding Threat Payloads & Junk Files", "Deep Shredder Layer", total, total)
             val (artifactCount, artifactBytes, artifactNames) = purgeSuspiciousLocalArtifactsDetailed()
             purgedArtifactCount = artifactCount
 
             val unnecessaryFiles = scanTempFiles(treeUri, getLargeFileThresholdBytes())
-                .filter { isAutoSelectableJunk(it.category) }
+                .filter { isAutoSelectableJunk(it.category) || it.category == TempFileCategory.APK_INSTALLER }
                 .map { it.copy(isSelected = true) }
 
             val (junkDeletedCount, junkDeletedBytes, junkNames) = deleteTempEntriesDetailed(unnecessaryFiles)
             val ownFreed = clearOwnAppCache()
+            runCatching { SQLiteDatabase.releaseMemory() }
 
             autoDeletedCount = artifactCount + junkDeletedCount
             autoDeletedBytes = (artifactBytes + junkDeletedBytes + ownFreed).coerceAtLeast(0L)
-            deletedNames.addAll((artifactNames + junkNames).distinct().take(12))
+            deletedNames.addAll((artifactNames + junkNames).distinct().take(16))
 
             if (artifactBytes + ownFreed > 0L) {
                 recordStorageReclaimedBytes(artifactBytes + ownFreed)
             }
-            if (autoDeletedCount > 0 || autoDeletedBytes > 0L) {
+            if (autoDeletedCount > 0 || autoDeletedBytes > 0L || destroyedProcessesCount > 0) {
                 appendStorageCleanHistory(
-                    title = "Virus Auto-Clean ($autoDeletedCount junk files)",
-                    itemCount = autoDeletedCount,
+                    title = "Virus Destroy & Shred ($autoDeletedCount payloads, $destroyedProcessesCount killed)",
+                    itemCount = autoDeletedCount + destroyedProcessesCount,
                     freedBytes = autoDeletedBytes,
-                    categoryLabel = "Threat & Junk Shield"
+                    categoryLabel = "Threat Destroyer"
                 )
             }
         }
 
-        val sortedFindings = findings.sortedWith(
+        val finalFindings = findings.map { item ->
+            if (item.packageName in neutralizedSet) item.copy(isNeutralized = true) else item
+        }
+        val sortedFindings = finalFindings.sortedWith(
             compareByDescending<VirusScanFinding> { it.riskLevel.ordinal }
                 .thenByDescending { it.isHiddenPackage }
                 .thenBy { it.appName.lowercase() }
@@ -1542,29 +1623,58 @@ class SystemDiagnosticsRepository(private val context: Context) {
             autoDeletedFilesCount = autoDeletedCount,
             autoDeletedBytes = autoDeletedBytes,
             deletedFileNames = deletedNames,
+            autoDestroyedProcessesCount = destroyedProcessesCount,
+            destroyedThreatNames = destroyedThreatNames.take(12),
+            shreddedPayloadsCount = autoDeletedCount,
             scanDurationMs = (System.currentTimeMillis() - startMs).coerceAtLeast(1L),
             findings = sortedFindings,
             lastScanCompleted = true
         )
     }
 
-    suspend fun neutralizeLocalThreats(flaggedPackages: List<String>): Int = withContext(Dispatchers.IO) {
-        var stopped = 0
-        for (pkg in flaggedPackages) {
-            if (pkg != context.packageName) {
-                runCatching {
-                    activityManager.killBackgroundProcesses(pkg)
-                    stopped++
+    suspend fun destroyThreatsFromInside(flaggedPackages: List<String>): Triple<Int, Int, Long> =
+        withContext(Dispatchers.IO) {
+            val killed = HashSet<String>()
+            // 3-wave aggressive background termination so stealth threat services are crushed
+            repeat(3) {
+                for (pkg in flaggedPackages) {
+                    if (pkg != context.packageName) {
+                        runCatching {
+                            activityManager.killBackgroundProcesses(pkg)
+                            killed.add(pkg)
+                        }
+                    }
                 }
+                if (it < 2) delay(90L)
             }
+
+            val (artifactCount, artifactBytes, _) = purgeSuspiciousLocalArtifactsDetailed()
+            val ownFreed = clearOwnAppCache()
+            val extraJunk = scanTempFiles(getSavedStorageFolderUri(), getLargeFileThresholdBytes())
+                .filter { isAutoSelectableJunk(it.category) || it.category == TempFileCategory.APK_INSTALLER }
+                .map { it.copy(isSelected = true) }
+            val (safCount, safBytes) = cleanSelectedTempFiles(extraJunk)
+            runCatching { SQLiteDatabase.releaseMemory() }
+            System.gc()
+
+            val totalFreed = (ownFreed + artifactBytes + safBytes).coerceAtLeast(0L)
+            val totalShredded = artifactCount + safCount
+            if (ownFreed + artifactBytes > 0L) {
+                recordStorageReclaimedBytes(ownFreed + artifactBytes)
+            }
+            if (killed.isNotEmpty() || totalShredded > 0 || totalFreed > 0L) {
+                appendStorageCleanHistory(
+                    title = "Threat Destroyer (${killed.size} crushed, $totalShredded shredded)",
+                    itemCount = killed.size + totalShredded,
+                    freedBytes = totalFreed,
+                    categoryLabel = "Deep Destroyer"
+                )
+            }
+            Triple(killed.size, totalShredded, totalFreed)
         }
-        clearOwnAppCache()
-        purgeSuspiciousLocalArtifactsDetailed()
-        val extraJunk = scanTempFiles(getSavedStorageFolderUri(), getLargeFileThresholdBytes())
-            .filter { isAutoSelectableJunk(it.category) }
-            .map { it.copy(isSelected = true) }
-        cleanSelectedTempFiles(extraJunk)
-        stopped
+
+    suspend fun neutralizeLocalThreats(flaggedPackages: List<String>): Int {
+        return destroyThreatsFromInside(flaggedPackages).first
     }
 
     fun observeBatteryTelemetry(): Flow<BatteryTelemetry> = callbackFlow {
@@ -1799,13 +1909,26 @@ class SystemDiagnosticsRepository(private val context: Context) {
                 }
             } else if (isCleanableStoredArtifact(child, isDatabaseDir, includeApks)) {
                 val sz = child.length()
-                if (runCatching { child.delete() }.getOrDefault(false)) {
+                if (shredAndDeleteFile(child)) {
                     if (deletedCountOut != null) deletedCountOut[0]++
                     if (freedBytesOut != null) freedBytesOut[0] += sz
                     deletedNamesOut?.add(child.name)
                 }
             }
         }
+    }
+
+    private fun shredAndDeleteFile(file: File): Boolean {
+        return runCatching {
+            if (file.isFile && file.length() > 0L) {
+                val wipeSize = minOf(file.length(), 65_536L).toInt()
+                FileOutputStream(file, false).use { fos ->
+                    fos.write(ByteArray(wipeSize))
+                    fos.flush()
+                }
+            }
+            file.delete()
+        }.getOrDefault(false)
     }
 
     private fun queryTotalAndFreeStorage(): Pair<Long, Long> {

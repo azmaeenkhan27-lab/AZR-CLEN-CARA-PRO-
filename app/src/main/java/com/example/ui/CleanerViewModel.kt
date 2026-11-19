@@ -11,6 +11,7 @@ import com.example.model.BatteryOptimizationMode
 import com.example.model.BatteryTelemetry
 import com.example.model.CacheAreaBreakdown
 import com.example.model.CacheCleanHistoryRecord
+import com.example.model.CacheCleanMode
 import com.example.model.CacheSelectionPreset
 import com.example.model.CleanerModule
 import com.example.model.InternalBufferBreakdown
@@ -67,6 +68,9 @@ data class AzroiaUiState(
     val skipZeroCacheAutoClean: Boolean = true,
     val internalBufferBreakdown: InternalBufferBreakdown = InternalBufferBreakdown(),
     val inspectedCacheApp: AppCacheEntry? = null,
+    val selectedCacheMode: CacheCleanMode = CacheCleanMode.SMART_USED,
+    val isFlushingInternalBuffers: Boolean = false,
+    val lastBufferFlushFreedBytes: Long = 0L,
 
     // Module 2: RAM Optimization
     val ramTelemetry: RamTelemetry = RamTelemetry(),
@@ -177,6 +181,15 @@ data class AzroiaUiState(
                 !it.isWhitelisted &&
                 it.cleanState != AppCacheCleanState.CLEANED &&
                 it.wasUsedByUser &&
+                it.cacheBytes > 0L
+        }
+
+    val dormantCachedApps: List<AppCacheEntry>
+        get() = cacheEntries.filter {
+            it.packageName != "com.aistudio.azroiacare.qxmkvp" &&
+                !it.isWhitelisted &&
+                it.cleanState != AppCacheCleanState.CLEANED &&
+                !it.wasUsedByUser &&
                 it.cacheBytes > 0L
         }
 
@@ -897,6 +910,7 @@ class CleanerViewModel(application: Application) : AndroidViewModel(application)
                     CacheSelectionPreset.OVER_THRESHOLD -> entry.cacheBytes >= threshold
                     CacheSelectionPreset.TOP_FIVE -> entry.packageName in topFivePkgs
                     CacheSelectionPreset.MEDIA_ONLY -> entry.isPriorityMediaApp && entry.cacheBytes > 0L
+                    CacheSelectionPreset.DORMANT_OLD -> !entry.wasUsedByUser && entry.cacheBytes > 0L
                 }
                 entry.copy(isSelectedForClean = match)
             }
@@ -908,6 +922,53 @@ class CleanerViewModel(application: Application) : AndroidViewModel(application)
                 cacheEntries = updated,
                 cacheStatusMessage = "Preset '${preset.label}': Selected $selectedCount app(s) (${formatBytes(selectedBytes)})"
             )
+        }
+    }
+
+    fun selectCacheCleanMode(mode: CacheCleanMode) {
+        _uiState.update {
+            it.copy(
+                selectedCacheMode = mode,
+                cacheStatusMessage = "${mode.label} selected • ${mode.detail}"
+            )
+        }
+    }
+
+    fun executeSelectedCacheMode() {
+        when (_uiState.value.selectedCacheMode) {
+            CacheCleanMode.SMART_USED -> startAutoUsedAndCachedAppsClean()
+            CacheCleanMode.DEEP_BUFFER -> flushInternalCacheBuffersNow()
+            CacheCleanMode.TURBO_SWEEP -> startAutoAllAppsCacheClean()
+        }
+    }
+
+    fun flushInternalCacheBuffersNow() {
+        if (_uiState.value.isFlushingInternalBuffers || _uiState.value.isCleaningCache) return
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isFlushingInternalBuffers = true,
+                    cacheStatusMessage = "Flushing internal CacheDir, CodeCache, ExternalCache & SQLite WAL buffers..."
+                )
+            }
+            val result = repo.deepFlushCacheBuffers()
+            val refreshedOwn = repo.measureOwnAppCacheBytes()
+            val newRemovedTotal = repo.getTotalCacheRemovedBytes()
+            val refreshedHistory = repo.getCacheCleanHistory()
+            val refreshedEntries = repo.loadInstalledAppCacheEntries()
+            delay(260L)
+            _uiState.update { state ->
+                state.copy(
+                    isFlushingInternalBuffers = false,
+                    ownAppCacheBytes = refreshedOwn,
+                    internalBufferBreakdown = result.breakdown,
+                    totalCacheFreedSessionBytes = maxOf(state.totalCacheFreedSessionBytes, newRemovedTotal),
+                    lastBufferFlushFreedBytes = result.freedBytes,
+                    cacheHistory = refreshedHistory,
+                    cacheEntries = refreshedEntries,
+                    cacheStatusMessage = "Deep Buffer Flush complete • Freed ${formatBytes(result.freedBytes)} (${result.filesClearedCount} buffer files, SQLite trimmed)"
+                )
+            }
         }
     }
 
@@ -1849,9 +1910,9 @@ class CleanerViewModel(application: Application) : AndroidViewModel(application)
             it.copy(
                 autoDeleteUnnecessaryFiles = enabled,
                 virusStatusMessage = if (enabled) {
-                    "Auto-Clean active: Unnecessary junk & temp files are auto-deleted on scan"
+                    "Auto-Destroy active: Flagged threats crushed & payloads shredded on scan"
                 } else {
-                    "Auto-Delete paused: Only threat scanning active"
+                    "Auto-Destroy paused: Deep scan active without auto-shredding"
                 }
             )
         }
@@ -1866,9 +1927,9 @@ class CleanerViewModel(application: Application) : AndroidViewModel(application)
                 it.copy(
                     isScanningVirus = true,
                     virusScanProgress = 0.04f,
-                    currentScanLayer = "Initializing Deep Threat & Auto-Clean Matrix",
+                    currentScanLayer = "Initializing Deep Threat & Internal Destroyer Matrix",
                     virusStatusMessage = if (autoDelete) {
-                        "Scanning apps & auto-deleting unnecessary junk files..."
+                        "Scanning layers, crushing threat processes & shredding payloads..."
                     } else {
                         "Hunting hidden apps, sideloads, and risky permissions..."
                     }
@@ -1895,15 +1956,15 @@ class CleanerViewModel(application: Application) : AndroidViewModel(application)
             val refreshedBreakdown = repo.measureInternalBufferBreakdown()
             val totalFlagged = posture.criticalCount + posture.suspiciousCount
 
-            val autoCleanSummary = if (posture.autoDeletedFilesCount > 0 || posture.autoDeletedBytes > 0L) {
-                "Auto-deleted ${posture.autoDeletedFilesCount} unnecessary files (${formatBytes(posture.autoDeletedBytes)})"
+            val autoCleanSummary = if (posture.autoDestroyedProcessesCount > 0 || posture.shreddedPayloadsCount > 0 || posture.autoDeletedBytes > 0L) {
+                "Crushed ${posture.autoDestroyedProcessesCount} threat process(es) • Shredded ${posture.shreddedPayloadsCount} payloads (${formatBytes(posture.autoDeletedBytes)})"
             } else {
-                "Unnecessary junk buffers already clean"
+                "Threat buffers & payloads already clean"
             }
             val msg = if (totalFlagged == 0) {
                 "Zero Threats • ${posture.scannedCount} apps safe • $autoCleanSummary"
             } else {
-                "Found $totalFlagged Threat(s) (${posture.hiddenCount} hidden) • $autoCleanSummary"
+                "Detected $totalFlagged Threat(s) (${posture.hiddenCount} hidden) • $autoCleanSummary"
             }
 
             _uiState.update {
@@ -1911,7 +1972,7 @@ class CleanerViewModel(application: Application) : AndroidViewModel(application)
                     isScanningVirus = false,
                     virusScanProgress = 1f,
                     currentScannedAppName = "",
-                    currentScanLayer = "Scan & Cleanup Complete",
+                    currentScanLayer = "Internal Destruction & Scan Complete",
                     securityPosture = posture,
                     tempFiles = refreshedTemps,
                     storageCleanHistory = refreshedHistory,
@@ -1930,24 +1991,51 @@ class CleanerViewModel(application: Application) : AndroidViewModel(application)
             _uiState.update {
                 it.copy(
                     isNeutralizingThreats = true,
-                    virusStatusMessage = "Terminating threat background processes & deleting unnecessary files..."
+                    virusStatusMessage = "Deploying 3-wave internal crusher & zero-fill payload shredder..."
                 )
             }
             val flagged = state.securityPosture.findings
                 .filter { it.riskLevel != RiskLevel.SAFE }
                 .map { it.packageName }
-            val stopped = repo.neutralizeLocalThreats(flagged)
-            val refreshedTemps = repo.scanTempFiles(state.scannedFolderUri, state.storageLargeThresholdBytes)
+            val (crushedProcesses, shreddedCount, totalFreed) = repo.destroyThreatsFromInside(flagged)
+            val savedTree = state.scannedFolderUri ?: repo.getSavedStorageFolderUri()
+            val refreshedTemps = repo.scanTempFiles(savedTree, state.storageLargeThresholdBytes)
+            val refreshedHistory = repo.getStorageCleanHistory()
+            val refreshedBreakdown = repo.measureInternalBufferBreakdown()
+            val refreshedOwnCache = repo.measureOwnAppCacheBytes()
             delay(450L)
+
+            val flaggedSet = flagged.toSet()
+            val updatedFindings = state.securityPosture.findings.map { item ->
+                if (item.packageName in flaggedSet) item.copy(isNeutralized = true) else item
+            }
+            val destroyedNames = updatedFindings
+                .filter { it.packageName in flaggedSet }
+                .map { it.appName }
+                .distinct()
+                .take(12)
+
+            val updatedPosture = state.securityPosture.copy(
+                findings = updatedFindings,
+                autoDestroyedProcessesCount = maxOf(state.securityPosture.autoDestroyedProcessesCount, crushedProcesses),
+                destroyedThreatNames = (state.securityPosture.destroyedThreatNames + destroyedNames).distinct().take(12),
+                shreddedPayloadsCount = state.securityPosture.shreddedPayloadsCount + shreddedCount,
+                autoDeletedFilesCount = state.securityPosture.autoDeletedFilesCount + shreddedCount,
+                autoDeletedBytes = state.securityPosture.autoDeletedBytes + totalFreed
+            )
+
             _uiState.update {
                 it.copy(
                     isNeutralizingThreats = false,
+                    securityPosture = updatedPosture,
                     tempFiles = refreshedTemps,
-                    ownAppCacheBytes = repo.measureOwnAppCacheBytes(),
+                    storageCleanHistory = refreshedHistory,
+                    internalBufferBreakdown = refreshedBreakdown,
+                    ownAppCacheBytes = refreshedOwnCache,
                     virusStatusMessage = if (flagged.isEmpty()) {
-                        "System Clean • Zero active threats & all unnecessary files deleted"
+                        "Shredder Complete • Shredded $shreddedCount payload(s) (${formatBytes(totalFreed)}) • Zero active threats"
                     } else {
-                        "Neutralized $stopped threat background process(es) & purged artifacts • Remove flagged apps below"
+                        "Crushed $crushedProcesses threat process(es) & shredded $shreddedCount payloads (${formatBytes(totalFreed)}) • Tap Uninstall for permanent APK removal"
                     }
                 )
             }

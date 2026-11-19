@@ -74,21 +74,23 @@ fun CacheReactorHeroCanvas(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            tween(durationMillis = if (isScanningOrCleaning) 1600 else 5200, easing = LinearEasing)
+            tween(durationMillis = if (isScanningOrCleaning) 1400 else 5000, easing = LinearEasing)
         ),
         label = "radar_sweep"
     )
     val counterRotation by infinite.animateFloat(
         initialValue = 360f,
         targetValue = 0f,
-        animationSpec = infiniteRepeatable(tween(durationMillis = 8200, easing = LinearEasing)),
+        animationSpec = infiniteRepeatable(
+            tween(durationMillis = if (isScanningOrCleaning) 2400 else 7800, easing = LinearEasing)
+        ),
         label = "counter_orbit"
     )
     val corePulse by infinite.animateFloat(
         initialValue = 0.72f,
         targetValue = 1.0f,
         animationSpec = infiniteRepeatable(
-            tween(durationMillis = 1200, easing = FastOutSlowInEasing),
+            tween(durationMillis = if (isScanningOrCleaning) 650 else 1250, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "core_pulse"
@@ -98,20 +100,20 @@ fun CacheReactorHeroCanvas(
     val hasLiveBreakdown = breakdown.totalAreaBytes > 0L || removedBytes > 0L
 
     Box(
-        modifier = modifier.size(204.dp),
+        modifier = modifier.size(218.dp),
         contentAlignment = Alignment.Center
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val radius = size.minDimension / 2f
             val center = Offset(size.width / 2f, size.height / 2f)
 
-            // 1. Deep Holographic Radial Glow
+            // 1. Deep Multi-Spectral Quantum Bloom
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        NeonCyan.copy(alpha = 0.24f * corePulse),
-                        RoyalSapphire.copy(alpha = 0.14f * corePulse),
-                        HyperViolet.copy(alpha = 0.08f),
+                        NeonCyan.copy(alpha = 0.28f * corePulse),
+                        RoyalSapphire.copy(alpha = 0.16f * corePulse),
+                        HyperViolet.copy(alpha = 0.10f),
                         Color.Transparent
                     ),
                     center = center,
@@ -121,35 +123,55 @@ fun CacheReactorHeroCanvas(
                 center = center
             )
 
-            // 2. Outer Calibration Tick Ring (36 ticks)
-            val tickInner = radius * 0.90f
+            // Active shockwave ring during sweeping/auto-cleaning
+            if (isScanningOrCleaning) {
+                drawCircle(
+                    color = NeonCyan.copy(alpha = (1.1f - corePulse).coerceIn(0.18f, 0.75f)),
+                    radius = radius * (0.76f + 0.20f * corePulse),
+                    center = center,
+                    style = Stroke(width = 2.4.dp.toPx())
+                )
+            }
+
+            // 2. High-Precision 60-Tick Calibration HUD Ring
+            val tickInner = radius * 0.89f
             val tickOuter = radius * 0.97f
-            for (i in 0 until 36) {
-                val angleRad = Math.toRadians((i * 10).toDouble())
-                val isMajor = i % 3 == 0
+            for (i in 0 until 60) {
+                val angleRad = Math.toRadians((i * 6).toDouble())
+                val isMajor = i % 5 == 0
+                val isCardinal = i % 15 == 0
+                val endR = when {
+                    isCardinal -> tickOuter
+                    isMajor -> tickInner + (tickOuter - tickInner) * 0.78f
+                    else -> tickInner + (tickOuter - tickInner) * 0.42f
+                }
                 drawLine(
-                    color = if (isMajor) NeonCyan.copy(alpha = 0.65f) else CyberBorderMuted.copy(alpha = 0.55f),
+                    color = when {
+                        isCardinal -> SolarAmber.copy(alpha = 0.9f)
+                        isMajor -> NeonCyan.copy(alpha = 0.7f)
+                        else -> CyberBorderMuted.copy(alpha = 0.48f)
+                    },
                     start = Offset(
                         center.x + (cos(angleRad) * tickInner).toFloat(),
                         center.y + (sin(angleRad) * tickInner).toFloat()
                     ),
                     end = Offset(
-                        center.x + (cos(angleRad) * (if (isMajor) tickOuter else tickInner + (tickOuter - tickInner) * 0.55f)).toFloat(),
-                        center.y + (sin(angleRad) * (if (isMajor) tickOuter else tickInner + (tickOuter - tickInner) * 0.55f)).toFloat()
+                        center.x + (cos(angleRad) * endR).toFloat(),
+                        center.y + (sin(angleRad) * endR).toFloat()
                     ),
-                    strokeWidth = if (isMajor) 2.2.dp.toPx() else 1.dp.toPx(),
+                    strokeWidth = if (isCardinal) 2.6.dp.toPx() else if (isMajor) 1.8.dp.toPx() else 0.9.dp.toPx(),
                     cap = StrokeCap.Round
                 )
             }
 
-            // 3. Multi-Segment Cache Area Ring
-            val ringD = radius * 1.60f
+            // 3. Multi-Segment Cache Area Ring + Soft Neon Bloom Underlay
+            val ringD = radius * 1.58f
             val ringTopLeft = Offset(center.x - ringD / 2f, center.y - ringD / 2f)
             val ringSize = Size(ringD, ringD)
-            val strokeW = 10.dp.toPx()
+            val strokeW = 10.5.dp.toPx()
 
             drawArc(
-                color = CyberBorderMuted.copy(alpha = 0.45f),
+                color = CyberBorderMuted.copy(alpha = 0.42f),
                 startAngle = 0f,
                 sweepAngle = 360f,
                 useCenter = false,
@@ -173,6 +195,17 @@ fun CacheReactorHeroCanvas(
                 for ((bytes, color) in segments) {
                     val frac = (bytes.toFloat() / totalArea.toFloat()).coerceIn(0.05f, 1f)
                     val sweep = (totalSweep * frac).coerceAtLeast(10f)
+                    // Soft glow bloom arc behind segment
+                    drawArc(
+                        color = color.copy(alpha = 0.24f * corePulse),
+                        startAngle = startDeg,
+                        sweepAngle = sweep,
+                        useCenter = false,
+                        topLeft = ringTopLeft,
+                        size = ringSize,
+                        style = Stroke(width = strokeW * 1.75f, cap = StrokeCap.Round)
+                    )
+                    // Sharp saturated foreground segment
                     drawArc(
                         color = color,
                         startAngle = startDeg,
@@ -187,11 +220,11 @@ fun CacheReactorHeroCanvas(
             } else {
                 drawArc(
                     brush = Brush.sweepGradient(
-                        colors = listOf(NeonCyan.copy(alpha = 0.25f), NeonCyan, SolarAmber, NeonCyan.copy(alpha = 0.25f)),
+                        colors = listOf(NeonCyan.copy(alpha = 0.28f), NeonCyan, SolarAmber, NeonCyan.copy(alpha = 0.28f)),
                         center = center
                     ),
                     startAngle = -90f,
-                    sweepAngle = 250f,
+                    sweepAngle = 260f,
                     useCenter = false,
                     topLeft = ringTopLeft,
                     size = ringSize,
@@ -199,47 +232,52 @@ fun CacheReactorHeroCanvas(
                 )
             }
 
-            // 4. Inner Rotating Radar Beam & Counter-Rotating Orbit
-            val innerD = radius * 1.24f
+            // 4. Inner Rotating Sonar Beam + Dual Orbiting Plasma Nodes
+            val innerD = radius * 1.22f
             val innerTl = Offset(center.x - innerD / 2f, center.y - innerD / 2f)
             rotate(degrees = sweepRotation, pivot = center) {
                 drawArc(
                     brush = Brush.sweepGradient(
-                        colors = listOf(Color.Transparent, NeonCyan.copy(alpha = 0.55f), Color.White.copy(alpha = 0.85f)),
+                        colors = listOf(Color.Transparent, NeonCyan.copy(alpha = 0.58f), Color.White.copy(alpha = 0.9f)),
                         center = center
                     ),
                     startAngle = 0f,
-                    sweepAngle = 115f,
+                    sweepAngle = 125f,
                     useCenter = false,
                     topLeft = innerTl,
                     size = Size(innerD, innerD),
-                    style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
+                    style = Stroke(width = 3.2.dp.toPx(), cap = StrokeCap.Round)
                 )
-                // Orbiting Plasma Particle
-                val orbAngle = Math.toRadians(115.0)
+                val orbAngle = Math.toRadians(125.0)
                 val orbR = innerD / 2f
+                val orbCenter = Offset(
+                    center.x + (cos(orbAngle) * orbR).toFloat(),
+                    center.y + (sin(orbAngle) * orbR).toFloat()
+                )
                 drawCircle(
-                    color = NeonCyan,
-                    radius = 4.dp.toPx(),
-                    center = Offset(
-                        center.x + (cos(orbAngle) * orbR).toFloat(),
-                        center.y + (sin(orbAngle) * orbR).toFloat()
-                    )
+                    color = NeonCyan.copy(alpha = 0.42f * corePulse),
+                    radius = 7.dp.toPx(),
+                    center = orbCenter
+                )
+                drawCircle(
+                    color = Color.White,
+                    radius = 3.dp.toPx(),
+                    center = orbCenter
                 )
             }
 
             rotate(degrees = counterRotation, pivot = center) {
-                val subD = radius * 1.04f
+                val subD = radius * 1.02f
                 val subTl = Offset(center.x - subD / 2f, center.y - subD / 2f)
                 for (k in 0..2) {
                     drawArc(
-                        color = SolarAmber.copy(alpha = 0.6f),
+                        color = SolarAmber.copy(alpha = 0.65f),
                         startAngle = k * 120f,
-                        sweepAngle = 48f,
+                        sweepAngle = 52f,
                         useCenter = false,
                         topLeft = subTl,
                         size = Size(subD, subD),
-                        style = Stroke(width = 1.8.dp.toPx(), cap = StrokeCap.Round)
+                        style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
                     )
                 }
             }
@@ -248,12 +286,12 @@ fun CacheReactorHeroCanvas(
         // Center Telemetry Core Readout
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(horizontal = 20.dp)
+            modifier = Modifier.padding(horizontal = 22.dp)
         ) {
             Icon(
                 imageVector = Icons.Filled.CleaningServices,
                 contentDescription = null,
-                tint = NeonCyan,
+                tint = if (isScanningOrCleaning) SolarAmber else NeonCyan,
                 modifier = Modifier.size(20.dp)
             )
             Spacer(modifier = Modifier.height(3.dp))
@@ -267,9 +305,9 @@ fun CacheReactorHeroCanvas(
                 maxLines = 1
             )
             Text(
-                text = "TOTAL CACHE AREA",
+                text = if (isScanningOrCleaning) "QUANTUM SWEEP" else "TOTAL CACHE AREA",
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp, letterSpacing = 1.1.sp),
-                color = NeonCyan,
+                color = if (isScanningOrCleaning) SolarAmber else NeonCyan,
                 maxLines = 1
             )
         }

@@ -90,6 +90,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.AppCacheCleanState
 import com.example.model.AppCacheEntry
+import com.example.model.CacheCleanMode
 import com.example.model.CacheSelectionPreset
 import com.example.model.CleanerModule
 import com.example.ui.AzroiaUiState
@@ -100,6 +101,7 @@ import com.example.ui.components.CacheReactorHeroCanvas
 import com.example.ui.components.CyberBackdrop
 import com.example.ui.components.ModuleTopBar
 import com.example.ui.components.SmartCacheGuardPanel
+import com.example.ui.components.TopCacheHogsVisualCard
 import com.example.ui.theme.CyberBorderMuted
 import com.example.ui.theme.ElectricCrimson
 import com.example.ui.theme.EmeraldPulse
@@ -122,6 +124,7 @@ private enum class CacheFilterTab(val label: String) {
     USED_CACHED("Used & Cached"),
     CACHED_ONLY("Cached > 0"),
     OVER_LIMIT("Over Limit"),
+    DORMANT("Dormant"),
     MEDIA_SOCIAL("Media & Social"),
     BROWSERS("Browsers & Files"),
     SHIELDED("Shielded")
@@ -158,7 +161,10 @@ fun CacheClearScreen(
     onDismissUsageAccessDialog: () -> Unit,
     onConsumePendingSettingsPkg: () -> Unit,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onSelectCacheMode: (CacheCleanMode) -> Unit = {},
+    onExecuteCacheMode: () -> Unit = onStartUsedAndCachedClean,
+    onFlushInternalBuffers: () -> Unit = onRunCacheSweep
 ) {
     BackHandler(onBack = onBack)
     val context = LocalContext.current
@@ -188,6 +194,9 @@ fun CacheClearScreen(
             }
             CacheFilterTab.CACHED_ONLY -> uiState.cacheEntries.filter { it.cacheBytes > 0L }
             CacheFilterTab.OVER_LIMIT -> uiState.cacheEntries.filter { it.cacheBytes >= uiState.cacheAlertThresholdBytes }
+            CacheFilterTab.DORMANT -> uiState.cacheEntries.filter {
+                it.packageName != context.packageName && !it.wasUsedByUser && it.cacheBytes > 0L
+            }
             CacheFilterTab.MEDIA_SOCIAL -> uiState.cacheEntries.filter {
                 val p = it.packageName.lowercase()
                 p.contains("youtube") || p.contains("facebook") || p.contains("instagram") ||
@@ -440,8 +449,45 @@ fun CacheClearScreen(
                                 totalCacheBytes = uiState.totalDetectedAppCacheBytes,
                                 removedBytes = uiState.totalCacheFreedSessionBytes,
                                 breakdown = uiState.cacheAreaBreakdown,
-                                isScanningOrCleaning = uiState.isCleaningCache || uiState.isGuidedQueueActive
+                                isScanningOrCleaning = uiState.isCleaningCache || uiState.isGuidedQueueActive || uiState.isFlushingInternalBuffers
                             )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Engine Mode Selector Pills (Smart Used / Deep Buffer / Turbo Sweep)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                CacheCleanMode.entries.forEach { mode ->
+                                    val selected = uiState.selectedCacheMode == mode
+                                    FilterChip(
+                                        selected = selected,
+                                        onClick = { onSelectCacheMode(mode) },
+                                        label = {
+                                            Text(
+                                                text = mode.label,
+                                                style = MaterialTheme.typography.labelSmall
+                                            )
+                                        },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = NeonCyan.copy(alpha = 0.22f),
+                                            selectedLabelColor = NeonCyan,
+                                            containerColor = ObsidianVoid,
+                                            labelColor = TextSecondary
+                                        ),
+                                        border = FilterChipDefaults.filterChipBorder(
+                                            enabled = true,
+                                            selected = selected,
+                                            borderColor = CyberBorderMuted,
+                                            selectedBorderColor = NeonCyan
+                                        ),
+                                        modifier = Modifier.testTag("cache_mode_${mode.name.lowercase()}")
+                                    )
+                                }
+                            }
 
                             Spacer(modifier = Modifier.height(10.dp))
 
@@ -569,10 +615,19 @@ fun CacheClearScreen(
                                 Spacer(modifier = Modifier.height(10.dp))
                             }
 
-                            // Dedicated Primary CTA: Clean ONLY Used Apps with Cache > 0, then Auto-Stop
+                            // Dedicated Primary CTA: Mode-Aware Engine Clean
+                            val primaryTitle = when (uiState.selectedCacheMode) {
+                                CacheCleanMode.SMART_USED -> if (uiState.hasUsageStatsAccess) {
+                                    "CLEAN USED & CACHED (${usedCachedQueue.size} • ${formatBytes(usedCachedBytes)})"
+                                } else {
+                                    "CLEAN USED & CACHED APPS ONLY"
+                                }
+                                CacheCleanMode.DEEP_BUFFER -> "FLUSH BUFFERS & WAL (${formatBytes(uiState.internalBufferBreakdown.totalBytes)})"
+                                CacheCleanMode.TURBO_SWEEP -> "TURBO SWEEP ALL NON-SHIELDED APPS"
+                            }
                             Button(
-                                onClick = onStartUsedAndCachedClean,
-                                enabled = !uiState.isCleaningCache && !uiState.isGuidedQueueActive,
+                                onClick = onExecuteCacheMode,
+                                enabled = !uiState.isCleaningCache && !uiState.isGuidedQueueActive && !uiState.isFlushingInternalBuffers,
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = NeonCyan,
                                     contentColor = ObsidianVoid
@@ -587,17 +642,13 @@ fun CacheClearScreen(
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Column(horizontalAlignment = Alignment.Start) {
                                     Text(
-                                        text = if (uiState.hasUsageStatsAccess) {
-                                            "CLEAN USED & CACHED (${usedCachedQueue.size} • ${formatBytes(usedCachedBytes)})"
-                                        } else {
-                                            "CLEAN USED & CACHED APPS ONLY"
-                                        },
+                                        text = primaryTitle,
                                         style = MaterialTheme.typography.labelLarge,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        text = "Cleans only run apps with cache > 0, then auto-stops",
+                                        text = uiState.selectedCacheMode.detail,
                                         style = MaterialTheme.typography.bodyMedium.copy(fontSize = 10.5.sp),
                                         color = ObsidianVoid.copy(alpha = 0.82f),
                                         maxLines = 1,
@@ -840,7 +891,20 @@ fun CacheClearScreen(
                         onSelectThreshold = onSelectThreshold,
                         onApplyPreset = onApplySelectionPreset,
                         onToggleSkipZero = onToggleSkipZeroCache,
-                        onCleanOverThreshold = onStartOverThresholdClean
+                        onCleanOverThreshold = onStartOverThresholdClean,
+                        isFlushingBuffers = uiState.isFlushingInternalBuffers,
+                        lastBufferFlushFreedBytes = uiState.lastBufferFlushFreedBytes,
+                        onFlushBuffersNow = onFlushInternalBuffers
+                    )
+                }
+
+                // Top Cache Hogs Radar Visualization
+                item {
+                    TopCacheHogsVisualCard(
+                        entries = uiState.cacheEntries,
+                        thresholdBytes = uiState.cacheAlertThresholdBytes,
+                        onInspectApp = { onInspectApp(it) },
+                        onQuickCleanApp = { onCleanSingleApp(it) }
                     )
                 }
 

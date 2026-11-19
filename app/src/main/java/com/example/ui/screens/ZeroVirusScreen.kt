@@ -6,7 +6,6 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,11 +30,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.AutoDelete
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.GppGood
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
@@ -65,7 +62,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
@@ -79,8 +75,9 @@ import com.example.model.RiskLevel
 import com.example.model.VirusScanFinding
 import com.example.ui.AzroiaUiState
 import com.example.ui.components.CyberBackdrop
-import com.example.ui.components.ModuleArtworkCanvas
 import com.example.ui.components.ModuleTopBar
+import com.example.ui.components.VirusDestructionReportCard
+import com.example.ui.components.ZeroVirusDestroyCoreCanvas
 import com.example.ui.theme.CyberBorderMuted
 import com.example.ui.theme.ElectricCrimson
 import com.example.ui.theme.EmeraldPulse
@@ -93,7 +90,6 @@ import com.example.ui.theme.SolarAmber
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
-import com.example.util.formatBytes
 
 private enum class VirusFilterTab(val label: String) {
     ALL("All"),
@@ -115,10 +111,10 @@ fun ZeroVirusScreen(
     val context = LocalContext.current
     val sec = uiState.securityPosture
     val totalFlagged = sec.criticalCount + sec.suspiciousCount
+    val activeUnneutralized = sec.findings.count { it.riskLevel != RiskLevel.SAFE && !it.isNeutralized }
 
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var selectedFilter by rememberSaveable { mutableStateOf(VirusFilterTab.ALL) }
-    var showDeletedNames by rememberSaveable { mutableStateOf(false) }
 
     val filteredFindings = remember(sec.findings, searchQuery, selectedFilter) {
         val q = searchQuery.trim().lowercase()
@@ -159,17 +155,17 @@ fun ZeroVirusScreen(
                 contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // 1. Zero Virus Radar Hero + Auto-Scan & Auto-Delete Control
+                // 1. Zero Virus Internal Destroyer Core + Auto-Destroy Controls
                 item {
                     Surface(
                         color = ObsidianCard,
                         shape = RoundedCornerShape(24.dp),
                         border = BorderStroke(
                             1.2.dp,
-                            if (sec.lastScanCompleted && totalFlagged == 0) {
-                                EmeraldPulse.copy(alpha = 0.65f)
-                            } else {
-                                ElectricCrimson.copy(alpha = 0.6f)
+                            when {
+                                uiState.isNeutralizingThreats -> SolarAmber.copy(alpha = 0.7f)
+                                sec.lastScanCompleted && activeUnneutralized == 0 -> EmeraldPulse.copy(alpha = 0.65f)
+                                else -> ElectricCrimson.copy(alpha = 0.6f)
                             }
                         )
                     ) {
@@ -179,26 +175,11 @@ fun ZeroVirusScreen(
                                 .padding(20.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            val centerVal = when {
-                                uiState.isScanningVirus -> "${(uiState.virusScanProgress * 100).toInt()}%"
-                                !sec.lastScanCompleted -> "HUNT"
-                                totalFlagged == 0 -> "${sec.threatDefenseScore}"
-                                else -> "$totalFlagged"
-                            }
-                            val centerUnit = when {
-                                uiState.isScanningVirus -> "DEEP AUDIT"
-                                !sec.lastScanCompleted -> "ALL LAYERS"
-                                totalFlagged == 0 -> "SHIELD SCORE"
-                                else -> "FLAGGED"
-                            }
-
-                            ModuleArtworkCanvas(
-                                module = CleanerModule.VIRUS,
-                                accent = if (sec.lastScanCompleted && totalFlagged == 0) EmeraldPulse else ElectricCrimson,
-                                progressRatio = if (uiState.isScanningVirus) uiState.virusScanProgress else 1f,
-                                centerValue = centerVal,
-                                centerUnit = centerUnit,
-                                modifier = Modifier.size(168.dp)
+                            ZeroVirusDestroyCoreCanvas(
+                                posture = sec,
+                                isScanning = uiState.isScanningVirus,
+                                isDestroying = uiState.isNeutralizingThreats,
+                                scanProgress = uiState.virusScanProgress
                             )
 
                             Spacer(modifier = Modifier.height(14.dp))
@@ -231,21 +212,21 @@ fun ZeroVirusScreen(
                                     shape = RoundedCornerShape(12.dp),
                                     border = BorderStroke(
                                         0.8.dp,
-                                        if (totalFlagged == 0) EmeraldPulse.copy(alpha = 0.45f) else SolarAmber.copy(alpha = 0.45f)
+                                        if (activeUnneutralized == 0) EmeraldPulse.copy(alpha = 0.45f) else SolarAmber.copy(alpha = 0.45f)
                                     ),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Text(
                                         text = msg,
                                         style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.5.sp),
-                                        color = if (totalFlagged == 0) EmeraldPulse else SolarAmber,
+                                        color = if (activeUnneutralized == 0) EmeraldPulse else SolarAmber,
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(10.dp))
                             }
 
-                            // Auto-Delete Unnecessary Files Toggle
+                            // Auto-Destroy & Shred Toggle
                             Surface(
                                 color = ObsidianVoid.copy(alpha = 0.75f),
                                 shape = RoundedCornerShape(14.dp),
@@ -272,12 +253,12 @@ fun ZeroVirusScreen(
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Column {
                                             Text(
-                                                text = "Auto-Delete Unnecessary Files",
+                                                text = "Auto-Destroy Threats & Shred Junk",
                                                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                                                 color = TextPrimary
                                             )
                                             Text(
-                                                text = "Deletes residual .tmp, .log, .bak, .apk & junk on scan",
+                                                text = "Auto-crushes threat processes & zero-fill shreds .apk, .dex, .tmp, .log, .wal & .dat on scan",
                                                 style = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.sp),
                                                 color = TextSecondary
                                             )
@@ -286,7 +267,7 @@ fun ZeroVirusScreen(
                                     Switch(
                                         checked = uiState.autoDeleteUnnecessaryFiles,
                                         onCheckedChange = onToggleAutoDeleteUnnecessary,
-                                        enabled = !uiState.isScanningVirus,
+                                        enabled = !uiState.isScanningVirus && !uiState.isNeutralizingThreats,
                                         colors = SwitchDefaults.colors(
                                             checkedThumbColor = ObsidianVoid,
                                             checkedTrackColor = NeonCyan
@@ -300,7 +281,7 @@ fun ZeroVirusScreen(
 
                             Button(
                                 onClick = onStartScan,
-                                enabled = !uiState.isScanningVirus,
+                                enabled = !uiState.isScanningVirus && !uiState.isNeutralizingThreats,
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = ElectricCrimson,
                                     contentColor = TextPrimary
@@ -315,9 +296,9 @@ fun ZeroVirusScreen(
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Text(
                                     text = if (uiState.isScanningVirus) {
-                                        "SCANNING & AUTO-DELETING JUNK…"
+                                        "CRUSHING THREATS & SHREDDING…"
                                     } else {
-                                        "DEEP HUNT & AUTO-CLEAN"
+                                        "DEEP SCAN & AUTO-DESTROY"
                                     },
                                     style = MaterialTheme.typography.labelLarge
                                 )
@@ -327,7 +308,7 @@ fun ZeroVirusScreen(
                                 Spacer(modifier = Modifier.height(10.dp))
                                 OutlinedButton(
                                     onClick = onNeutralizeThreats,
-                                    enabled = !uiState.isNeutralizingThreats,
+                                    enabled = !uiState.isNeutralizingThreats && !uiState.isScanningVirus,
                                     border = BorderStroke(
                                         1.2.dp,
                                         if (totalFlagged > 0) SolarAmber else EmeraldPulse
@@ -345,7 +326,7 @@ fun ZeroVirusScreen(
                                             strokeWidth = 2.dp
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
-                                        Text("NEUTRALIZING & PURGING…", color = SolarAmber)
+                                        Text("CRUSHING FROM INSIDE…", color = SolarAmber)
                                     } else {
                                         Icon(
                                             imageVector = Icons.Filled.Shield,
@@ -355,9 +336,9 @@ fun ZeroVirusScreen(
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text(
                                             text = if (totalFlagged > 0) {
-                                                "NEUTRALIZE THREATS & PURGE JUNK"
+                                                "CRUSH & SHRED ALL THREATS"
                                             } else {
-                                                "DEEP PURGE RESIDUAL ARTIFACTS"
+                                                "DEEP SHRED RESIDUAL PAYLOADS"
                                             },
                                             style = MaterialTheme.typography.labelLarge,
                                             color = if (totalFlagged > 0) SolarAmber else EmeraldPulse
@@ -369,91 +350,10 @@ fun ZeroVirusScreen(
                     }
                 }
 
-                // 2. Auto-Deleted Unnecessary Files Report Card
+                // 2. Internal Destruction & Payload Shredder Report Card
                 if (sec.lastScanCompleted) {
                     item {
-                        Surface(
-                            color = ObsidianCard,
-                            shape = RoundedCornerShape(18.dp),
-                            border = BorderStroke(1.dp, EmeraldPulse.copy(alpha = 0.45f)),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("virus_auto_deleted_report_card")
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(14.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .clickable(enabled = sec.deletedFileNames.isNotEmpty()) {
-                                            showDeletedNames = !showDeletedNames
-                                        },
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.CheckCircle,
-                                            contentDescription = null,
-                                            tint = EmeraldPulse,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Column {
-                                            Text(
-                                                text = "AUTO-DELETED UNNECESSARY FILES",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = EmeraldPulse
-                                            )
-                                            Text(
-                                                text = "${sec.autoDeletedFilesCount} file(s) purged • ${formatBytes(sec.autoDeletedBytes)} freed • ${sec.scanDurationMs}ms",
-                                                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.5.sp),
-                                                color = TextSecondary
-                                            )
-                                        }
-                                    }
-                                    if (sec.deletedFileNames.isNotEmpty()) {
-                                        Icon(
-                                            imageVector = Icons.Filled.KeyboardArrowDown,
-                                            contentDescription = "Toggle deleted files list",
-                                            tint = EmeraldPulse,
-                                            modifier = Modifier
-                                                .size(22.dp)
-                                                .rotate(if (showDeletedNames) 180f else 0f)
-                                        )
-                                    }
-                                }
-
-                                if (showDeletedNames && sec.deletedFileNames.isNotEmpty()) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(ObsidianVoid.copy(alpha = 0.72f))
-                                            .padding(10.dp),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        sec.deletedFileNames.forEach { fileName ->
-                                            Text(
-                                                text = "✓ Deleted: $fileName",
-                                                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.5.sp),
-                                                color = EmeraldPulse,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        VirusDestructionReportCard(posture = sec)
                     }
 
                     // 3. 4-Column Security Metrics Grid
@@ -465,12 +365,17 @@ fun ZeroVirusScreen(
                             SecurityMetricBox("SCANNED", "${sec.scannedCount}", TextPrimary, Modifier.weight(1f))
                             SecurityMetricBox("HIDDEN", "${sec.hiddenCount}", HyperViolet, Modifier.weight(1f))
                             SecurityMetricBox(
-                                "FLAGGED",
-                                "$totalFlagged",
-                                if (totalFlagged == 0) EmeraldPulse else ElectricCrimson,
+                                "CRUSHED",
+                                "${sec.autoDestroyedProcessesCount}",
+                                SolarAmber,
                                 Modifier.weight(1f)
                             )
-                            SecurityMetricBox("JUNK DEL", "${sec.autoDeletedFilesCount}", NeonCyan, Modifier.weight(1f))
+                            SecurityMetricBox(
+                                "SHREDDED",
+                                "${sec.shreddedPayloadsCount}",
+                                NeonCyan,
+                                Modifier.weight(1f)
+                            )
                         }
                     }
 
@@ -627,10 +532,11 @@ private fun VirusFindingRow(
     finding: VirusScanFinding,
     onUninstall: () -> Unit
 ) {
-    val riskColor = when (finding.riskLevel) {
-        RiskLevel.CRITICAL -> ElectricCrimson
-        RiskLevel.SUSPICIOUS -> SolarAmber
-        RiskLevel.SAFE -> EmeraldPulse
+    val riskColor = when {
+        finding.riskLevel == RiskLevel.SAFE -> EmeraldPulse
+        finding.isNeutralized -> SolarAmber
+        finding.riskLevel == RiskLevel.CRITICAL -> ElectricCrimson
+        else -> SolarAmber
     }
 
     Surface(
@@ -669,7 +575,7 @@ private fun VirusFindingRow(
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(
                     text = if (finding.isHiddenPackage) "${finding.appName} (Hidden)" else finding.appName,
                     style = MaterialTheme.typography.titleMedium,
@@ -677,6 +583,38 @@ private fun VirusFindingRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                if (finding.riskLevel != RiskLevel.SAFE) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (finding.isNeutralized) {
+                            Surface(
+                                color = EmeraldPulse.copy(alpha = 0.16f),
+                                shape = RoundedCornerShape(6.dp),
+                                border = BorderStroke(0.7.dp, EmeraldPulse.copy(alpha = 0.55f))
+                            ) {
+                                Text(
+                                    text = "NEUTRALIZED",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                    color = EmeraldPulse,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                        Surface(
+                            color = riskColor.copy(alpha = 0.14f),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Text(
+                                text = "RISK ${finding.riskScore}/100",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                color = riskColor,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
                 if (finding.riskReasons.isEmpty()) {
                     Text(
                         text = "Verified Safe • ${finding.installerLabel}",
@@ -719,7 +657,7 @@ private fun VirusFindingRow(
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Destroy", style = MaterialTheme.typography.labelLarge, color = riskColor)
+                    Text("Uninstall", style = MaterialTheme.typography.labelLarge, color = riskColor)
                 }
             }
         }

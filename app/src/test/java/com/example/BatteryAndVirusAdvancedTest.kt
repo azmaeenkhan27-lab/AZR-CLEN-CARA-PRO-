@@ -4,7 +4,9 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.SystemDiagnosticsRepository
 import com.example.model.BatteryOptimizationMode
+import com.example.model.RiskLevel
 import com.example.model.SecurityPosture
+import com.example.model.VirusScanFinding
 import com.example.ui.AzroiaUiState
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -78,6 +80,7 @@ class BatteryAndVirusAdvancedTest {
             assertFalse(staleLog.exists())
             assertFalse(staleApk.exists())
             assertTrue(postureAuto.autoDeletedFilesCount >= 3)
+            assertTrue(postureAuto.shreddedPayloadsCount >= 3)
             assertTrue(postureAuto.autoDeletedBytes >= 20L * 1024L)
             assertTrue(postureAuto.deletedFileNames.contains("virus_junk_scan.tmp"))
 
@@ -92,7 +95,35 @@ class BatteryAndVirusAdvancedTest {
     }
 
     @Test
-    fun `securityPosture threatDefenseScore and uiState battery virus defaults stay accurate`() {
+    fun `destroyThreatsFromInside crushes threat processes and shreds nested payloads cleanly`() {
+        runBlocking {
+            val context = ApplicationProvider.getApplicationContext<Context>()
+            val repo = SystemDiagnosticsRepository(context)
+
+            val nestedDir = File(context.filesDir, "threat_dropper_box").apply { mkdirs() }
+            val dropperApk = File(nestedDir, "stealth_payload.apk").apply {
+                writeBytes(ByteArray(16 * 1024) { 6 })
+            }
+            val bufferDat = File(nestedDir, "stored_trace.dat").apply {
+                writeBytes(ByteArray(6 * 1024) { 4 })
+            }
+            assertTrue(dropperApk.exists())
+            assertTrue(bufferDat.exists())
+
+            val (crushed, shredded, freedBytes) = repo.destroyThreatsFromInside(
+                listOf("com.fake.spyware", "com.fake.adware", context.packageName)
+            )
+
+            assertFalse(dropperApk.exists())
+            assertFalse(bufferDat.exists())
+            assertEquals(2, crushed)
+            assertTrue(shredded >= 2)
+            assertTrue(freedBytes >= 22L * 1024L)
+        }
+    }
+
+    @Test
+    fun `securityPosture threatDefenseScore rewards neutralized threats and uiState defaults stay accurate`() {
         val cleanPosture = SecurityPosture(
             isDeviceLockSecure = true,
             criticalCount = 0,
@@ -100,14 +131,22 @@ class BatteryAndVirusAdvancedTest {
             autoDeletedFilesCount = 4,
             lastScanCompleted = true
         )
-        val riskyPosture = SecurityPosture(
-            isDeviceLockSecure = false,
+        val unneutralizedRisky = SecurityPosture(
+            isDeviceLockSecure = true,
             criticalCount = 2,
             suspiciousCount = 2,
+            findings = listOf(
+                VirusScanFinding("com.threat.one", "Threat One", null, RiskLevel.CRITICAL, "Unknown", false, listOf("Dropper"), 88, isNeutralized = false),
+                VirusScanFinding("com.threat.two", "Threat Two", null, RiskLevel.CRITICAL, "Unknown", true, listOf("Hidden"), 92, isNeutralized = false)
+            ),
             lastScanCompleted = true
         )
+        val neutralizedPosture = unneutralizedRisky.copy(
+            findings = unneutralizedRisky.findings.map { it.copy(isNeutralized = true) }
+        )
         assertEquals(100, cleanPosture.threatDefenseScore)
-        assertTrue(riskyPosture.threatDefenseScore < cleanPosture.threatDefenseScore)
+        assertTrue(unneutralizedRisky.threatDefenseScore < cleanPosture.threatDefenseScore)
+        assertTrue(neutralizedPosture.threatDefenseScore > unneutralizedRisky.threatDefenseScore)
 
         val state = AzroiaUiState()
         assertTrue(state.autoDeleteUnnecessaryFiles)
