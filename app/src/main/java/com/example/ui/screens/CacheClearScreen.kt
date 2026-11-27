@@ -33,7 +33,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.AccessibilityNew
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.Bolt
@@ -717,19 +716,18 @@ fun CacheClearScreen(
                     }
                 }
 
-                // CLEAN METHOD STATUS Card (Usage Stats Reader + Accessibility Auto-Clean Method)
+                // CLEAN METHOD STATUS Card (Usage Stats Reader + Play-Safe Engine)
                 item {
                     val methodSummary = when {
                         uiState.isCleaningCache -> "SCANNING APPS"
-                        uiState.isGuidedQueueActive && uiState.isAutoCleanMode ->
-                            "AUTO CLEANING ${uiState.guidedQueueIndex + 1}/${uiState.guidedQueueTotal}"
-                        uiState.hasUsageStatsAccess && uiState.isAccessibilityServiceEnabled -> "ALL METHODS ACTIVE"
-                        uiState.isAccessibilityServiceEnabled -> "AUTO READY"
-                        else -> "METHOD SETUP"
+                        uiState.isGuidedQueueActive ->
+                            "CLEANING ${uiState.guidedQueueIndex + 1}/${uiState.guidedQueueTotal}"
+                        uiState.hasUsageStatsAccess -> "ALL METHODS ACTIVE"
+                        else -> "GRANT USAGE ACCESS"
                     }
                     val methodBadgeColor = when {
-                        uiState.hasUsageStatsAccess && uiState.isAccessibilityServiceEnabled -> EmeraldPulse
-                        uiState.isAccessibilityServiceEnabled || uiState.isGuidedQueueActive -> NeonCyan
+                        uiState.hasUsageStatsAccess -> EmeraldPulse
+                        uiState.isGuidedQueueActive -> NeonCyan
                         else -> SolarAmber
                     }
 
