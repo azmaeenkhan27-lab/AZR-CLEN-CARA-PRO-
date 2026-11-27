@@ -3,7 +3,9 @@ package com.example.ui.screens
 import android.content.Intent
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -61,8 +63,10 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -73,13 +77,16 @@ import com.example.model.BatteryOptimizationMode
 import com.example.model.CleanerModule
 import com.example.ui.AzroiaUiState
 import com.example.ui.components.CyberBackdrop
+import com.example.ui.components.CyberGlassCard
 import com.example.ui.components.ModuleTopBar
 import com.example.ui.theme.CyberBorderMuted
 import com.example.ui.theme.EmeraldPulse
+import com.example.ui.theme.HyperViolet
 import com.example.ui.theme.NeonCyan
 import com.example.ui.theme.ObsidianCard
 import com.example.ui.theme.ObsidianCardElevated
 import com.example.ui.theme.ObsidianVoid
+import com.example.ui.theme.RoyalSapphire
 import com.example.ui.theme.SolarAmber
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
@@ -130,10 +137,9 @@ fun BatteryGuardScreen(
             ) {
                 // 1. Hero Battery Plasma Cell & Master Optimization Card
                 item {
-                    Surface(
-                        color = ObsidianCard,
-                        shape = RoundedCornerShape(24.dp),
-                        border = BorderStroke(1.2.dp, cellAccent.copy(alpha = 0.6f))
+                    CyberGlassCard(
+                        accent = cellAccent,
+                        secondaryAccent = NeonCyan
                     ) {
                         Column(
                             modifier = Modifier
@@ -150,7 +156,7 @@ fun BatteryGuardScreen(
                                     levelPercent = bat.levelPercent,
                                     isCharging = bat.isCharging,
                                     accent = cellAccent,
-                                    modifier = Modifier.size(width = 106.dp, height = 162.dp)
+                                    modifier = Modifier.size(width = 120.dp, height = 172.dp)
                                 )
 
                                 Column(horizontalAlignment = Alignment.Start) {
@@ -198,7 +204,15 @@ fun BatteryGuardScreen(
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(14.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            VoltCoreWaveformStrip(
+                                temperatureCelsius = bat.temperatureCelsius,
+                                voltageVolts = bat.voltageVolts,
+                                accent = cellAccent
+                            )
+
+                            Spacer(modifier = Modifier.height(12.dp))
 
                             // Master Battery Optimization Switch
                             Surface(
@@ -693,6 +707,84 @@ private fun BatteryStatChip(
 }
 
 @Composable
+private fun VoltCoreWaveformStrip(
+    temperatureCelsius: Float,
+    voltageVolts: Float,
+    accent: Color,
+    modifier: Modifier = Modifier
+) {
+    val infinite = rememberInfiniteTransition(label = "voltcore_wave_strip")
+    val phase by infinite.animateFloat(
+        initialValue = 0f,
+        targetValue = (2f * PI).toFloat(),
+        animationSpec = infiniteRepeatable(tween(2600, easing = LinearEasing)),
+        label = "wave_phase"
+    )
+
+    Surface(
+        color = ObsidianVoid.copy(alpha = 0.78f),
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.38f)),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Column {
+                Text(
+                    text = "THERMAL FLUX",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                    color = TextSecondary
+                )
+                Text(
+                    text = String.format(Locale.US, "%.1f°C • %.2fV", temperatureCelsius, voltageVolts),
+                    style = MaterialTheme.typography.labelLarge.copy(fontSize = 11.5.sp),
+                    color = accent
+                )
+            }
+            Canvas(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(26.dp)
+            ) {
+                val midY = size.height / 2f
+                val pathPrimary = Path()
+                val pathSecondary = Path()
+                val steps = 36
+                for (i in 0..steps) {
+                    val f = i / steps.toFloat()
+                    val x = f * size.width
+                    val amp = size.height * 0.34f * sin(f * PI).toFloat()
+                    val y1 = midY + sin(f * 4f * PI + phase).toFloat() * amp
+                    val y2 = midY + sin(f * 3f * PI - phase * 1.3f).toFloat() * (amp * 0.65f)
+                    if (i == 0) {
+                        pathPrimary.moveTo(x, y1)
+                        pathSecondary.moveTo(x, y2)
+                    } else {
+                        pathPrimary.lineTo(x, y1)
+                        pathSecondary.lineTo(x, y2)
+                    }
+                }
+                drawPath(
+                    path = pathSecondary,
+                    color = NeonCyan.copy(alpha = 0.48f),
+                    style = Stroke(width = 1.4.dp.toPx(), cap = StrokeCap.Round)
+                )
+                drawPath(
+                    path = pathPrimary,
+                    color = accent,
+                    style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun LiquidPlasmaBatteryCell(
     levelPercent: Int,
     isCharging: Boolean,
@@ -706,60 +798,169 @@ private fun LiquidPlasmaBatteryCell(
         animationSpec = infiniteRepeatable(tween(2200, easing = LinearEasing)),
         label = "wave"
     )
+    val haloPulse by infinite.animateFloat(
+        initialValue = 0.72f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            tween(1300, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "halo_pulse"
+    )
+    val orbitAngle by infinite.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(tween(5200, easing = LinearEasing)),
+        label = "orbit"
+    )
 
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val capW = size.width * 0.4f
+            val center = Offset(size.width / 2f, size.height / 2f + 4.dp.toPx())
+            val maxR = size.minDimension * 0.56f
+
+            // Ambient radial reactor aura behind cell
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        accent.copy(alpha = 0.28f * haloPulse),
+                        NeonCyan.copy(alpha = 0.12f * haloPulse),
+                        Color.Transparent
+                    ),
+                    center = center,
+                    radius = maxR
+                ),
+                radius = maxR,
+                center = center
+            )
+
+            // Rotating orbital ring around the reactor cell
+            rotate(orbitAngle, center) {
+                val ringD = size.minDimension * 0.96f
+                val tl = Offset(center.x - ringD / 2f, center.y - ringD / 2f)
+                drawArc(
+                    color = accent.copy(alpha = 0.45f),
+                    startAngle = 0f,
+                    sweepAngle = 70f,
+                    useCenter = false,
+                    topLeft = tl,
+                    size = Size(ringD, ringD),
+                    style = Stroke(width = 1.8.dp.toPx(), cap = StrokeCap.Round)
+                )
+                drawArc(
+                    color = NeonCyan.copy(alpha = 0.40f),
+                    startAngle = 180f,
+                    sweepAngle = 70f,
+                    useCenter = false,
+                    topLeft = tl,
+                    size = Size(ringD, ringD),
+                    style = Stroke(width = 1.8.dp.toPx(), cap = StrokeCap.Round)
+                )
+            }
+
+            val cellW = size.width * 0.72f
+            val bodyLeft = (size.width - cellW) / 2f
+            val capW = cellW * 0.44f
             val capH = 10.dp.toPx()
             drawRoundRect(
-                color = accent,
-                topLeft = Offset((size.width - capW) / 2f, 2.dp.toPx()),
+                brush = Brush.horizontalGradient(listOf(accent, NeonCyan)),
+                topLeft = Offset((size.width - capW) / 2f, 4.dp.toPx()),
                 size = Size(capW, capH),
                 cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
             )
 
-            val bodyTop = capH + 4.dp.toPx()
-            val bodyH = size.height - bodyTop - 2.dp.toPx()
-            val bodyLeft = 4.dp.toPx()
-            val bodyW = size.width - 8.dp.toPx()
+            val bodyTop = capH + 6.dp.toPx()
+            val bodyH = size.height - bodyTop - 6.dp.toPx()
 
-            clipRect(left = bodyLeft, top = bodyTop, right = bodyLeft + bodyW, bottom = bodyTop + bodyH) {
+            // Dark recessed interior
+            drawRoundRect(
+                color = ObsidianVoid.copy(alpha = 0.86f),
+                topLeft = Offset(bodyLeft, bodyTop),
+                size = Size(cellW, bodyH),
+                cornerRadius = CornerRadius(18.dp.toPx(), 18.dp.toPx())
+            )
+
+            clipRect(left = bodyLeft, top = bodyTop, right = bodyLeft + cellW, bottom = bodyTop + bodyH) {
                 val fillFrac = (levelPercent / 100f).coerceIn(0.08f, 1f)
                 val baseWaterY = bodyTop + bodyH * (1f - fillFrac)
 
+                // Back harmonic plasma wave
+                val backPath = Path().apply {
+                    moveTo(bodyLeft, bodyTop + bodyH)
+                    lineTo(bodyLeft, baseWaterY)
+                    val steps = 22
+                    for (i in 0..steps) {
+                        val frac = i / steps.toFloat()
+                        val x = bodyLeft + frac * cellW
+                        val y = baseWaterY + sin(frac * 2.5f * PI - waveShift * 1.2f).toFloat() * 4.5.dp.toPx()
+                        lineTo(x, y)
+                    }
+                    lineTo(bodyLeft + cellW, bodyTop + bodyH)
+                    close()
+                }
+                drawPath(
+                    path = backPath,
+                    color = HyperViolet.copy(alpha = 0.35f)
+                )
+
+                // Foreground luminous plasma wave
                 val liquidPath = Path().apply {
                     moveTo(bodyLeft, bodyTop + bodyH)
                     lineTo(bodyLeft, baseWaterY)
-                    val steps = 20
+                    val steps = 22
                     for (i in 0..steps) {
                         val frac = i / steps.toFloat()
-                        val x = bodyLeft + frac * bodyW
+                        val x = bodyLeft + frac * cellW
                         val y = baseWaterY + sin(frac * 2.5f * PI + waveShift).toFloat() * 4.dp.toPx()
                         lineTo(x, y)
                     }
-                    lineTo(bodyLeft + bodyW, bodyTop + bodyH)
+                    lineTo(bodyLeft + cellW, bodyTop + bodyH)
                     close()
                 }
                 drawPath(
                     path = liquidPath,
                     brush = Brush.verticalGradient(
-                        colors = listOf(accent.copy(alpha = 0.85f), NeonCyan.copy(alpha = 0.45f))
+                        colors = listOf(accent.copy(alpha = 0.90f), NeonCyan.copy(alpha = 0.55f), RoyalSapphire.copy(alpha = 0.5f))
                     )
+                )
+
+                // Segmented scale tick lines inside cell
+                for (tick in 1..4) {
+                    val ty = bodyTop + bodyH * (tick / 5f)
+                    drawLine(
+                        color = Color.White.copy(alpha = 0.16f),
+                        start = Offset(bodyLeft + 6.dp.toPx(), ty),
+                        end = Offset(bodyLeft + 16.dp.toPx(), ty),
+                        strokeWidth = 1.2.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                }
+
+                // Specular glass highlight streak along left inner wall
+                drawLine(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Color.White.copy(alpha = 0.35f), Color.Transparent)
+                    ),
+                    start = Offset(bodyLeft + 6.dp.toPx(), bodyTop + 12.dp.toPx()),
+                    end = Offset(bodyLeft + 6.dp.toPx(), bodyTop + bodyH * 0.72f),
+                    strokeWidth = 2.5.dp.toPx(),
+                    cap = StrokeCap.Round
                 )
             }
 
+            // Outer glowing cell chassis frame
             drawRoundRect(
-                color = accent,
+                brush = Brush.verticalGradient(listOf(accent, NeonCyan)),
                 topLeft = Offset(bodyLeft, bodyTop),
-                size = Size(bodyW, bodyH),
+                size = Size(cellW, bodyH),
                 cornerRadius = CornerRadius(18.dp.toPx(), 18.dp.toPx()),
-                style = Stroke(width = 3.dp.toPx())
+                style = Stroke(width = 2.8.dp.toPx())
             )
         }
 
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             if (isCharging) {
-                Icon(Icons.Filled.Bolt, contentDescription = null, tint = TextPrimary, modifier = Modifier.size(22.dp))
+                Icon(Icons.Filled.Bolt, contentDescription = null, tint = SolarAmber, modifier = Modifier.size(22.dp))
             }
             Text(
                 text = "$levelPercent%",
@@ -778,15 +979,24 @@ private fun TelemetryTile(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        color = ObsidianCard,
+        color = ObsidianCard.copy(alpha = 0.92f),
         shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(1.dp, CyberBorderMuted),
+        border = BorderStroke(1.1.dp, accent.copy(alpha = 0.38f)),
         modifier = modifier
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
-            Text(text = label, style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 3.dp, height = 11.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(accent)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(text = label, style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+            }
             Spacer(modifier = Modifier.height(6.dp))
-            Text(text = value, style = MaterialTheme.typography.titleMedium, color = accent)
+            Text(text = value, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = accent)
         }
     }
 }

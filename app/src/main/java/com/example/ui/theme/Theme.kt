@@ -24,7 +24,13 @@ private val AzroiaDarkColorScheme = darkColorScheme(
     onSurface = TextPrimary,
     surfaceVariant = ObsidianCard,
     onSurfaceVariant = TextSecondary,
+    surfaceContainerLowest = ObsidianGlassBottom,
+    surfaceContainerLow = ObsidianSurface,
+    surfaceContainer = ObsidianCard,
+    surfaceContainerHigh = ObsidianCardElevated,
+    surfaceContainerHighest = ObsidianGlassTop,
     outline = CyberBorderMuted,
+    outlineVariant = CyberBorderMuted.copy(alpha = 0.45f),
     error = ElectricCrimson,
     onError = TextPrimary
 )

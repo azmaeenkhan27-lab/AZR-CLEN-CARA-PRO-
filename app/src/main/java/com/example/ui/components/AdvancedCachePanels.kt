@@ -23,6 +23,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -31,7 +32,6 @@ import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.WarningAmber
@@ -1105,7 +1105,7 @@ fun AppCacheInspectorSheet(
                         .height(50.dp)
                         .testTag("inspector_open_app_info")
                 ) {
-                    Icon(Icons.Filled.OpenInNew, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("App Info", color = TextPrimary)
                 }
@@ -1156,5 +1156,302 @@ private fun FootprintMetric(label: String, value: String, color: Color) {
             style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp),
             color = TextPrimary
         )
+    }
+}
+
+@Composable
+fun GrandTotalCleanedBanner(
+    sessionCleanedBytes: Long,
+    sessionCleanedCount: Int,
+    grandTotalCleanedBytes: Long,
+    totalHistoryCount: Int,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        color = EmeraldPulse.copy(alpha = 0.11f),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, EmeraldPulse.copy(alpha = 0.55f)),
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("grand_total_cleaned_banner")
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Filled.CleaningServices,
+                        contentDescription = null,
+                        tint = EmeraldPulse,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "TOTAL CACHE CLEANED SUMMARY",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = EmeraldPulse
+                    )
+                }
+                Surface(
+                    color = EmeraldPulse.copy(alpha = 0.18f),
+                    shape = RoundedCornerShape(50)
+                ) {
+                    Text(
+                        text = "${maxOf(totalHistoryCount, sessionCleanedCount)} CLEANUPS",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp),
+                        color = EmeraldPulse,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "GRAND TOTAL CLEANED",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp),
+                        color = TextSecondary
+                    )
+                    Text(
+                        text = formatBytes(grandTotalCleanedBytes),
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                        color = EmeraldPulse
+                    )
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = "THIS SESSION",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp),
+                        color = TextSecondary
+                    )
+                    Text(
+                        text = if (sessionCleanedBytes > 0L) {
+                            "${formatBytes(sessionCleanedBytes)} ($sessionCleanedCount)"
+                        } else {
+                            "Ready to clean"
+                        },
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = NeonCyan
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AppsWithCacheSummaryCard(
+    appsWithCache: List<AppCacheEntry>,
+    totalDetectedCacheBytes: Long,
+    internalBufferBytes: Long,
+    hasUsageStatsAccess: Boolean,
+    onGrantUsageAccess: () -> Unit,
+    onOpenRestrictedSettingsHelp: () -> Unit,
+    onCleanSingleApp: (AppCacheEntry) -> Unit,
+    onInspectApp: (AppCacheEntry) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var showAllCachedApps by rememberSaveable { mutableStateOf(false) }
+    val visibleApps = if (showAllCachedApps) appsWithCache else appsWithCache.take(6)
+
+    Surface(
+        color = ObsidianCard,
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(
+            1.2.dp,
+            if (appsWithCache.isNotEmpty()) NeonCyan.copy(alpha = 0.55f) else SolarAmber.copy(alpha = 0.6f)
+        ),
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("apps_with_cache_summary_card")
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "APPS WITH CACHE (${appsWithCache.size})",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = NeonCyan
+                    )
+                    Text(
+                        text = "Total detected cache: ${formatBytes(totalDetectedCacheBytes)} (Buffers: ${formatBytes(internalBufferBytes)})",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.5.sp),
+                        color = TextSecondary,
+                        maxLines = 2
+                    )
+                }
+                Surface(
+                    color = NeonCyan.copy(alpha = 0.16f),
+                    shape = RoundedCornerShape(50),
+                    border = BorderStroke(1.dp, NeonCyan.copy(alpha = 0.5f))
+                ) {
+                    Text(
+                        text = formatBytes(totalDetectedCacheBytes),
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = NeonCyan,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            if (!hasUsageStatsAccess) {
+                Surface(
+                    color = SolarAmber.copy(alpha = 0.1f),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, SolarAmber.copy(alpha = 0.5f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "Grant Usage Access to display exact cache MB/GB inside Chrome, YouTube, Facebook & all apps. If Usage Access toggle is grayed out, tap 'Restricted Fix' → ⋮ top-right → Allow restricted settings.",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.5.sp),
+                            color = TextPrimary
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = onGrantUsageAccess,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = SolarAmber,
+                                    contentColor = ObsidianVoid
+                                ),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(42.dp)
+                                    .testTag("summary_grant_usage_button")
+                            ) {
+                                Text("Grant Usage", style = MaterialTheme.typography.labelLarge.copy(fontSize = 12.sp), maxLines = 1)
+                            }
+                            OutlinedButton(
+                                onClick = onOpenRestrictedSettingsHelp,
+                                border = BorderStroke(1.dp, NeonCyan.copy(alpha = 0.65f)),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(42.dp)
+                                    .testTag("summary_restricted_fix_button")
+                            ) {
+                                Text("Restricted Fix", color = NeonCyan, style = MaterialTheme.typography.labelLarge.copy(fontSize = 12.sp), maxLines = 1)
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (visibleApps.isEmpty()) {
+                Text(
+                    text = if (hasUsageStatsAccess) {
+                        "Great! All tracked apps currently report 0 B cache."
+                    } else {
+                        "Only Azroia internal buffers (${formatBytes(internalBufferBytes)}) are measurable until Usage Access is enabled above."
+                    },
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp),
+                    color = TextSecondary
+                )
+            } else {
+                visibleApps.forEach { app ->
+                    val sharePct = if (totalDetectedCacheBytes > 0L) {
+                        ((app.cacheBytes * 100L) / totalDetectedCacheBytes).toInt().coerceIn(0, 100)
+                    } else 0
+                    Surface(
+                        color = ObsidianVoid.copy(alpha = 0.72f),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, CyberBorderMuted),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { onInspectApp(app) }
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (app.icon != null) {
+                                Image(
+                                    bitmap = app.icon,
+                                    contentDescription = "${app.appName} icon",
+                                    modifier = Modifier
+                                        .size(30.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Filled.Android,
+                                    contentDescription = null,
+                                    tint = NeonCyan,
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = app.appName,
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = TextPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "Cache: ${formatBytes(app.cacheBytes)} ($sharePct%)",
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.5.sp),
+                                    color = SolarAmber,
+                                    maxLines = 1
+                                )
+                            }
+                            OutlinedButton(
+                                onClick = { onCleanSingleApp(app) },
+                                border = BorderStroke(1.dp, NeonCyan.copy(alpha = 0.7f)),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Text("Clean", color = NeonCyan, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+
+                if (appsWithCache.size > 6) {
+                    TextButton(
+                        onClick = { showAllCachedApps = !showAllCachedApps },
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Text(
+                            text = if (showAllCachedApps) "Show Top 6" else "Show All ${appsWithCache.size} Cached Apps",
+                            color = NeonCyan
+                        )
+                    }
+                }
+            }
+        }
     }
 }

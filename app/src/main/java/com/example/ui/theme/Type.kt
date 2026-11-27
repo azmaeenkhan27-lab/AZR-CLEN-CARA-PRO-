@@ -32,21 +32,24 @@ val AzroiaTypography = Typography(
         fontWeight = FontWeight.Bold,
         fontSize = 36.sp,
         lineHeight = 42.sp,
-        letterSpacing = 2.sp
+        letterSpacing = 2.sp,
+        fontFeatureSettings = "tnum"
     ),
     displayMedium = TextStyle(
         fontFamily = OrbitronFontFamily,
         fontWeight = FontWeight.Bold,
         fontSize = 26.sp,
         lineHeight = 32.sp,
-        letterSpacing = 1.5.sp
+        letterSpacing = 1.5.sp,
+        fontFeatureSettings = "tnum"
     ),
     headlineMedium = TextStyle(
         fontFamily = OrbitronFontFamily,
         fontWeight = FontWeight.Bold,
         fontSize = 20.sp,
         lineHeight = 26.sp,
-        letterSpacing = 1.sp
+        letterSpacing = 1.sp,
+        fontFeatureSettings = "tnum"
     ),
     titleLarge = TextStyle(
         fontFamily = SpaceGroteskFontFamily,
@@ -78,13 +81,15 @@ val AzroiaTypography = Typography(
         fontWeight = FontWeight.Bold,
         fontSize = 13.sp,
         lineHeight = 18.sp,
-        letterSpacing = 0.8.sp
+        letterSpacing = 0.8.sp,
+        fontFeatureSettings = "tnum"
     ),
     labelSmall = TextStyle(
         fontFamily = JetBrainsMonoFontFamily,
         fontWeight = FontWeight.Medium,
         fontSize = 11.sp,
         lineHeight = 14.sp,
-        letterSpacing = 1.1.sp
+        letterSpacing = 1.1.sp,
+        fontFeatureSettings = "tnum"
     )
 )

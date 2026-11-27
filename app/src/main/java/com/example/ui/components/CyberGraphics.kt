@@ -3,17 +3,24 @@ package com.example.ui.components
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -43,9 +50,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -66,13 +76,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.model.CleanerModule
+import com.example.ui.theme.CyberBevelHighlight
 import com.example.ui.theme.CyberBorderMuted
 import com.example.ui.theme.ElectricCrimson
+import com.example.ui.theme.ElectricIndigo
 import com.example.ui.theme.EmeraldPulse
 import com.example.ui.theme.HyperViolet
 import com.example.ui.theme.NeonCyan
 import com.example.ui.theme.ObsidianCard
 import com.example.ui.theme.ObsidianCardElevated
+import com.example.ui.theme.ObsidianGlassBottom
+import com.example.ui.theme.ObsidianGlassTop
 import com.example.ui.theme.ObsidianSurface
 import com.example.ui.theme.ObsidianVoid
 import com.example.ui.theme.RoyalSapphire
@@ -106,7 +120,7 @@ fun CyberBackdrop(modifier: Modifier = Modifier) {
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            tween(durationMillis = 7600, easing = FastOutSlowInEasing),
+            tween(durationMillis = 8200, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "aurora_drift"
@@ -115,27 +129,50 @@ fun CyberBackdrop(modifier: Modifier = Modifier) {
         initialValue = 0.35f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            tween(durationMillis = 2800, easing = FastOutSlowInEasing),
+            tween(durationMillis = 2600, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "star_twinkle"
     )
+    val radarSweep by infinite.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            tween(durationMillis = 22000, easing = LinearEasing)
+        ),
+        label = "bg_radar"
+    )
 
     Canvas(modifier = modifier.fillMaxSize()) {
+        // Multi-stop deep obsidian space gradient
         drawRect(
             brush = Brush.verticalGradient(
-                colors = listOf(ObsidianVoid, ObsidianSurface, ObsidianVoid)
+                colors = listOf(ObsidianVoid, ObsidianSurface, ObsidianGlassBottom)
+            )
+        )
+
+        // Subtle volumetric diagonal holographic light beam
+        drawRect(
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    RoyalSapphire.copy(alpha = 0.08f),
+                    NeonCyan.copy(alpha = 0.045f),
+                    Color.Transparent
+                ),
+                start = Offset(0f, size.height * (0.15f + 0.08f * drift)),
+                end = Offset(size.width, size.height * (0.65f + 0.08f * drift))
             )
         )
 
         // Subtle high-tech HUD perspective grid lines
-        val gridSpacing = 44.dp.toPx()
+        val gridSpacing = 40.dp.toPx()
         val cols = (size.width / gridSpacing).toInt()
         val rows = (size.height / gridSpacing).toInt()
         for (c in 1..cols) {
             val x = c * gridSpacing
             drawLine(
-                color = CyberBorderMuted.copy(alpha = 0.08f),
+                color = CyberBorderMuted.copy(alpha = if (c % 2 == 0) 0.11f else 0.06f),
                 start = Offset(x, 0f),
                 end = Offset(x, size.height),
                 strokeWidth = 0.7.dp.toPx()
@@ -144,68 +181,178 @@ fun CyberBackdrop(modifier: Modifier = Modifier) {
         for (r in 1..rows) {
             val y = r * gridSpacing
             drawLine(
-                color = CyberBorderMuted.copy(alpha = 0.07f),
+                color = CyberBorderMuted.copy(alpha = if (r % 2 == 0) 0.10f else 0.055f),
                 start = Offset(0f, y),
                 end = Offset(size.width, y),
                 strokeWidth = 0.7.dp.toPx()
             )
         }
 
-        // Animated Aurora Glow Nebulas
-        val topOrb = Offset(size.width * (0.18f + 0.08f * drift), size.height * (0.12f + 0.04f * drift))
+        // Faint precision orbital radar rings in backdrop
+        val radarCenter = Offset(size.width * 0.5f, size.height * 0.34f)
+        for (ringIdx in 1..3) {
+            val ringR = size.minDimension * (0.28f * ringIdx)
+            drawCircle(
+                color = NeonCyan.copy(alpha = 0.055f / ringIdx),
+                radius = ringR,
+                center = radarCenter,
+                style = Stroke(width = 1.dp.toPx())
+            )
+        }
+        rotate(degrees = radarSweep, pivot = radarCenter) {
+            val sweepR = size.minDimension * 0.84f
+            drawArc(
+                brush = Brush.sweepGradient(
+                    colors = listOf(Color.Transparent, NeonCyan.copy(alpha = 0.07f), Color.Transparent),
+                    center = radarCenter
+                ),
+                startAngle = 0f,
+                sweepAngle = 72f,
+                useCenter = true,
+                topLeft = Offset(radarCenter.x - sweepR, radarCenter.y - sweepR),
+                size = Size(sweepR * 2f, sweepR * 2f)
+            )
+        }
+
+        // Animated Volumetric Aurora Glow Nebulas
+        val topOrb = Offset(size.width * (0.16f + 0.10f * drift), size.height * (0.10f + 0.05f * drift))
         drawCircle(
             brush = Brush.radialGradient(
-                colors = listOf(RoyalSapphire.copy(alpha = 0.25f), NeonCyan.copy(alpha = 0.07f), Color.Transparent),
+                colors = listOf(RoyalSapphire.copy(alpha = 0.30f), NeonCyan.copy(alpha = 0.10f), Color.Transparent),
                 center = topOrb,
+                radius = size.width * 0.85f
+            ),
+            radius = size.width * 0.85f,
+            center = topOrb
+        )
+        val midOrb = Offset(size.width * (0.86f - 0.08f * drift), size.height * (0.58f - 0.05f * drift))
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(HyperViolet.copy(alpha = 0.21f), ElectricIndigo.copy(alpha = 0.09f), Color.Transparent),
+                center = midOrb,
                 radius = size.width * 0.78f
             ),
             radius = size.width * 0.78f,
-            center = topOrb
-        )
-        val midOrb = Offset(size.width * (0.86f - 0.07f * drift), size.height * (0.62f - 0.04f * drift))
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(HyperViolet.copy(alpha = 0.17f), Color.Transparent),
-                center = midOrb,
-                radius = size.width * 0.72f
-            ),
-            radius = size.width * 0.72f,
             center = midOrb
         )
         val botOrb = Offset(size.width * 0.48f, size.height * 0.92f)
         drawCircle(
             brush = Brush.radialGradient(
-                colors = listOf(SolarAmber.copy(alpha = 0.09f), Color.Transparent),
+                colors = listOf(SolarAmber.copy(alpha = 0.12f), EmeraldPulse.copy(alpha = 0.05f), Color.Transparent),
                 center = botOrb,
-                radius = size.width * 0.62f
+                radius = size.width * 0.68f
             ),
-            radius = size.width * 0.62f,
+            radius = size.width * 0.68f,
             center = botOrb
         )
 
-        // Subtle glowing telemetry particles
+        // Luminous Telemetry Starfield Particles with Starburst Glint
         val particleNodes = listOf(
-            Offset(0.14f, 0.22f) to NeonCyan,
-            Offset(0.84f, 0.18f) to SolarAmber,
-            Offset(0.28f, 0.48f) to HyperViolet,
-            Offset(0.76f, 0.42f) to NeonCyan,
-            Offset(0.18f, 0.76f) to EmeraldPulse,
-            Offset(0.88f, 0.80f) to SolarAmber
+            Offset(0.12f, 0.18f) to NeonCyan,
+            Offset(0.86f, 0.15f) to SolarAmber,
+            Offset(0.24f, 0.44f) to HyperViolet,
+            Offset(0.78f, 0.39f) to NeonCyan,
+            Offset(0.15f, 0.74f) to EmeraldPulse,
+            Offset(0.89f, 0.78f) to SolarAmber,
+            Offset(0.52f, 0.26f) to ElectricCrimson,
+            Offset(0.45f, 0.86f) to NeonCyan
         )
         particleNodes.forEachIndexed { idx, (pos, color) ->
             val phaseAlpha = if (idx % 2 == 0) twinkle else (1.35f - twinkle).coerceIn(0.3f, 1f)
-            val center = Offset(size.width * pos.x, size.height * (pos.y + (drift - 0.5f) * 0.02f))
+            val center = Offset(size.width * pos.x, size.height * (pos.y + (drift - 0.5f) * 0.025f))
             drawCircle(
-                color = color.copy(alpha = 0.28f * phaseAlpha),
-                radius = 4.dp.toPx(),
+                color = color.copy(alpha = 0.32f * phaseAlpha),
+                radius = 5.dp.toPx(),
                 center = center
             )
             drawCircle(
-                color = color.copy(alpha = 0.72f * phaseAlpha),
+                color = Color.White.copy(alpha = 0.80f * phaseAlpha),
                 radius = 1.4.dp.toPx(),
                 center = center
             )
+            if (idx % 2 == 0) {
+                val glint = 5.5.dp.toPx() * phaseAlpha
+                drawLine(
+                    color = color.copy(alpha = 0.45f * phaseAlpha),
+                    start = Offset(center.x - glint, center.y),
+                    end = Offset(center.x + glint, center.y),
+                    strokeWidth = 0.8.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+                drawLine(
+                    color = color.copy(alpha = 0.45f * phaseAlpha),
+                    start = Offset(center.x, center.y - glint),
+                    end = Offset(center.x, center.y + glint),
+                    strokeWidth = 0.8.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+            }
         }
+    }
+}
+
+@Composable
+fun CyberGlassCard(
+    accent: Color,
+    modifier: Modifier = Modifier,
+    secondaryAccent: Color = HyperViolet,
+    cornerRadius: Dp = 24.dp,
+    content: @Composable BoxScope.() -> Unit
+) {
+    val shape = RoundedCornerShape(cornerRadius)
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        ObsidianGlassTop.copy(alpha = 0.90f),
+                        ObsidianCard,
+                        ObsidianGlassBottom.copy(alpha = 0.96f)
+                    )
+                )
+            )
+            .border(
+                width = 1.4.dp,
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        accent.copy(alpha = 0.88f),
+                        CyberBorderMuted.copy(alpha = 0.55f),
+                        secondaryAccent.copy(alpha = 0.62f)
+                    )
+                ),
+                shape = shape
+            )
+    ) {
+        Canvas(modifier = Modifier.matchParentSize()) {
+            // Top glass specular catch line
+            drawLine(
+                brush = Brush.horizontalGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        Color.White.copy(alpha = 0.24f),
+                        accent.copy(alpha = 0.45f),
+                        Color.Transparent
+                    )
+                ),
+                start = Offset(size.width * 0.08f, 1.5.dp.toPx()),
+                end = Offset(size.width * 0.92f, 1.5.dp.toPx()),
+                strokeWidth = 1.2.dp.toPx(),
+                cap = StrokeCap.Round
+            )
+            // Soft corner ambient glow
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(accent.copy(alpha = 0.13f), Color.Transparent),
+                    center = Offset(size.width * 0.5f, 0f),
+                    radius = size.width * 0.65f
+                ),
+                radius = size.width * 0.65f,
+                center = Offset(size.width * 0.5f, 0f)
+            )
+        }
+        content()
     }
 }
 
@@ -402,8 +549,8 @@ fun ModuleArtworkCanvas(
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        accent.copy(alpha = 0.30f * pulse),
-                        HyperViolet.copy(alpha = 0.08f * pulse),
+                        accent.copy(alpha = 0.34f * pulse),
+                        HyperViolet.copy(alpha = 0.11f * pulse),
                         Color.Transparent
                     ),
                     center = c,
@@ -413,13 +560,40 @@ fun ModuleArtworkCanvas(
                 center = c
             )
 
-            val ringDiameter = r * 1.68f
+            // Recessed obsidian glass core behind telemetry text
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(ObsidianVoid.copy(alpha = 0.85f), ObsidianCard.copy(alpha = 0.65f)),
+                    center = c,
+                    radius = r * 0.64f
+                ),
+                radius = r * 0.64f,
+                center = c
+            )
+
+            // Precision 24-tick perimeter bezel
+            val tickInner = r * 0.90f
+            val tickOuter = r * 0.98f
+            for (i in 0 until 24) {
+                val aRad = Math.toRadians((i * 15).toDouble())
+                val isCardinal = i % 6 == 0
+                val endR = if (isCardinal) tickOuter else tickInner + (tickOuter - tickInner) * 0.55f
+                drawLine(
+                    color = if (isCardinal) accent.copy(alpha = 0.85f) else CyberBorderMuted.copy(alpha = 0.45f),
+                    start = Offset(c.x + (cos(aRad) * tickInner).toFloat(), c.y + (sin(aRad) * tickInner).toFloat()),
+                    end = Offset(c.x + (cos(aRad) * endR).toFloat(), c.y + (sin(aRad) * endR).toFloat()),
+                    strokeWidth = if (isCardinal) 1.6.dp.toPx() else 0.9.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+            }
+
+            val ringDiameter = r * 1.66f
             val ringTopLeft = Offset(c.x - ringDiameter / 2f, c.y - ringDiameter / 2f)
             val ringSize = Size(ringDiameter, ringDiameter)
 
             // Precision track ring
             drawArc(
-                color = CyberBorderMuted.copy(alpha = 0.65f),
+                color = CyberBorderMuted.copy(alpha = 0.58f),
                 startAngle = 0f,
                 sweepAngle = 360f,
                 useCenter = false,
@@ -646,6 +820,14 @@ fun SquareModuleSlideCard(
     secondaryStatusColor: Color = EmeraldPulse
 ) {
     val accent = moduleAccentColor(module)
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.96f else 1f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "card_press_${module.name}"
+    )
+
     val sizeModifier = if (tileSize != null) {
         modifier.size(tileSize)
     } else {
@@ -654,13 +836,14 @@ fun SquareModuleSlideCard(
 
     Box(
         modifier = sizeModifier
-            .clip(RoundedCornerShape(24.dp))
+            .scale(pressScale)
+            .clip(RoundedCornerShape(26.dp))
             .background(
-                brush = Brush.linearGradient(
+                brush = Brush.verticalGradient(
                     colors = listOf(
-                        ObsidianCardElevated.copy(alpha = 0.92f),
+                        ObsidianGlassTop.copy(alpha = 0.92f),
                         ObsidianCard,
-                        ObsidianVoid
+                        ObsidianGlassBottom
                     )
                 )
             )
@@ -668,32 +851,47 @@ fun SquareModuleSlideCard(
                 width = 1.6.dp,
                 brush = Brush.linearGradient(
                     colors = listOf(
-                        accent.copy(alpha = 0.92f),
-                        CyberBorderMuted.copy(alpha = 0.55f),
-                        SolarAmber.copy(alpha = 0.5f)
+                        accent.copy(alpha = 0.95f),
+                        CyberBorderMuted.copy(alpha = 0.50f),
+                        SolarAmber.copy(alpha = 0.55f)
                     )
                 ),
-                shape = RoundedCornerShape(24.dp)
+                shape = RoundedCornerShape(26.dp)
             )
-            .clickable(onClick = onClick)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = androidx.compose.material3.ripple(color = accent),
+                onClick = onClick
+            )
             .testTag("slide_${module.name.lowercase()}")
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            // Subtle inner holographic glass aura
+            // Subtle inner holographic glass aura + upper specular sheen
             drawCircle(
                 brush = Brush.radialGradient(
-                    colors = listOf(accent.copy(alpha = 0.14f), Color.Transparent),
-                    center = Offset(size.width * 0.5f, size.height * 0.44f),
-                    radius = size.minDimension * 0.58f
+                    colors = listOf(accent.copy(alpha = 0.18f), HyperViolet.copy(alpha = 0.05f), Color.Transparent),
+                    center = Offset(size.width * 0.5f, size.height * 0.42f),
+                    radius = size.minDimension * 0.62f
                 ),
-                radius = size.minDimension * 0.58f,
-                center = Offset(size.width * 0.5f, size.height * 0.44f)
+                radius = size.minDimension * 0.62f,
+                center = Offset(size.width * 0.5f, size.height * 0.42f)
             )
 
-            val bracketLen = 16.dp.toPx()
+            // Top specular highlight rim
+            drawLine(
+                brush = Brush.horizontalGradient(
+                    colors = listOf(Color.Transparent, CyberBevelHighlight, accent.copy(alpha = 0.6f), Color.Transparent)
+                ),
+                start = Offset(size.width * 0.14f, 1.5.dp.toPx()),
+                end = Offset(size.width * 0.86f, 1.5.dp.toPx()),
+                strokeWidth = 1.2.dp.toPx(),
+                cap = StrokeCap.Round
+            )
+
+            val bracketLen = 15.dp.toPx()
             val inset = 9.dp.toPx()
-            val strokeW = 2.dp.toPx()
-            val bracketColor = accent.copy(alpha = 0.9f)
+            val strokeW = 1.8.dp.toPx()
+            val bracketColor = accent.copy(alpha = 0.92f)
 
             drawLine(bracketColor, Offset(inset, inset + bracketLen), Offset(inset, inset), strokeW)
             drawLine(bracketColor, Offset(inset, inset), Offset(inset + bracketLen, inset), strokeW)
@@ -703,12 +901,19 @@ fun SquareModuleSlideCard(
             drawLine(bracketColor, Offset(inset, size.height - inset), Offset(inset + bracketLen, size.height - inset), strokeW)
             drawLine(bracketColor, Offset(size.width - inset - bracketLen, size.height - inset), Offset(size.width - inset, size.height - inset), strokeW)
             drawLine(bracketColor, Offset(size.width - inset, size.height - inset - bracketLen), Offset(size.width - inset, size.height - inset), strokeW)
+
+            // Precision corner vertex dots
+            val dotR = 2.dp.toPx()
+            drawCircle(accent, dotR, Offset(inset, inset))
+            drawCircle(accent, dotR, Offset(size.width - inset, inset))
+            drawCircle(accent, dotR, Offset(inset, size.height - inset))
+            drawCircle(accent, dotR, Offset(size.width - inset, size.height - inset))
         }
 
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(14.dp),
+                .padding(horizontal = 13.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.SpaceBetween,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -718,9 +923,9 @@ fun SquareModuleSlideCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Surface(
-                    color = accent.copy(alpha = 0.16f),
+                    color = accent.copy(alpha = 0.18f),
                     shape = RoundedCornerShape(50),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = 0.45f))
+                    border = BorderStroke(1.dp, accent.copy(alpha = 0.55f))
                 ) {
                     Text(
                         text = actionLabel,
@@ -733,9 +938,9 @@ fun SquareModuleSlideCard(
 
                 Box(
                     modifier = Modifier
-                        .size(12.dp)
+                        .size(14.dp)
                         .clip(CircleShape)
-                        .background(accent.copy(alpha = 0.25f)),
+                        .background(accent.copy(alpha = 0.22f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Box(
@@ -756,7 +961,7 @@ fun SquareModuleSlideCard(
                 compact = true,
                 modifier = Modifier
                     .weight(1f)
-                    .padding(vertical = 4.dp)
+                    .padding(vertical = 3.dp)
                     .aspectRatio(1f)
             )
 
@@ -767,7 +972,7 @@ fun SquareModuleSlideCard(
                 Text(
                     text = module.title,
                     style = MaterialTheme.typography.titleMedium.copy(
-                        fontSize = 15.sp,
+                        fontSize = 14.5.sp,
                         fontWeight = FontWeight.Bold
                     ),
                     color = TextPrimary,
@@ -785,13 +990,32 @@ fun SquareModuleSlideCard(
                     Text(
                         text = secondaryStatusLine,
                         style = MaterialTheme.typography.labelSmall.copy(
-                            fontSize = 10.5.sp,
+                            fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold,
                             letterSpacing = 0.2.sp
                         ),
                         color = secondaryStatusColor,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Spacer(modifier = Modifier.height(5.dp))
+                // Micro telemetry gauge bar at bottom of card
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.72f)
+                        .height(3.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(CyberBorderMuted.copy(alpha = 0.4f))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(progressRatio.coerceIn(0.1f, 1f))
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(50))
+                            .background(
+                                Brush.horizontalGradient(listOf(accent.copy(alpha = 0.65f), accent))
+                            )
                     )
                 }
             }
@@ -809,46 +1033,68 @@ fun WideVirusShieldCard(
     modifier: Modifier = Modifier
 ) {
     val accent = ElectricCrimson
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.97f else 1f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "wide_virus_press"
+    )
 
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(cardHeight)
-            .clip(RoundedCornerShape(24.dp))
+            .scale(pressScale)
+            .clip(RoundedCornerShape(26.dp))
             .background(
                 brush = Brush.horizontalGradient(
                     colors = listOf(
-                        ObsidianCardElevated,
+                        ObsidianGlassTop,
                         ObsidianCard,
-                        ObsidianSurface
+                        ObsidianGlassBottom
                     )
                 )
             )
             .border(
                 width = 1.6.dp,
                 brush = Brush.linearGradient(
-                    colors = listOf(accent.copy(alpha = 0.9f), HyperViolet.copy(alpha = 0.65f), SolarAmber.copy(alpha = 0.55f))
+                    colors = listOf(accent.copy(alpha = 0.95f), HyperViolet.copy(alpha = 0.68f), SolarAmber.copy(alpha = 0.58f))
                 ),
-                shape = RoundedCornerShape(24.dp)
+                shape = RoundedCornerShape(26.dp)
             )
-            .clickable(onClick = onClick)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = androidx.compose.material3.ripple(color = accent),
+                onClick = onClick
+            )
             .testTag("slide_virus")
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             drawCircle(
                 brush = Brush.radialGradient(
-                    colors = listOf(accent.copy(alpha = 0.14f), Color.Transparent),
+                    colors = listOf(accent.copy(alpha = 0.18f), HyperViolet.copy(alpha = 0.06f), Color.Transparent),
                     center = Offset(size.width * 0.22f, size.height * 0.5f),
-                    radius = size.height * 0.95f
+                    radius = size.height * 1.05f
                 ),
-                radius = size.height * 0.95f,
+                radius = size.height * 1.05f,
                 center = Offset(size.width * 0.22f, size.height * 0.5f)
             )
 
-            val bracketLen = 16.dp.toPx()
+            drawLine(
+                brush = Brush.horizontalGradient(
+                    colors = listOf(Color.Transparent, CyberBevelHighlight, accent.copy(alpha = 0.55f), Color.Transparent)
+                ),
+                start = Offset(size.width * 0.08f, 1.5.dp.toPx()),
+                end = Offset(size.width * 0.92f, 1.5.dp.toPx()),
+                strokeWidth = 1.2.dp.toPx(),
+                cap = StrokeCap.Round
+            )
+
+            val bracketLen = 15.dp.toPx()
             val inset = 9.dp.toPx()
-            val strokeW = 2.dp.toPx()
-            val bracketColor = accent.copy(alpha = 0.9f)
+            val strokeW = 1.8.dp.toPx()
+            val bracketColor = accent.copy(alpha = 0.92f)
 
             drawLine(bracketColor, Offset(inset, inset + bracketLen), Offset(inset, inset), strokeW)
             drawLine(bracketColor, Offset(inset, inset), Offset(inset + bracketLen, inset), strokeW)
@@ -858,6 +1104,12 @@ fun WideVirusShieldCard(
             drawLine(bracketColor, Offset(inset, size.height - inset), Offset(inset + bracketLen, size.height - inset), strokeW)
             drawLine(bracketColor, Offset(size.width - inset - bracketLen, size.height - inset), Offset(size.width - inset, size.height - inset), strokeW)
             drawLine(bracketColor, Offset(size.width - inset, size.height - inset - bracketLen), Offset(size.width - inset, size.height - inset), strokeW)
+
+            val dotR = 2.dp.toPx()
+            drawCircle(accent, dotR, Offset(inset, inset))
+            drawCircle(accent, dotR, Offset(size.width - inset, inset))
+            drawCircle(accent, dotR, Offset(inset, size.height - inset))
+            drawCircle(accent, dotR, Offset(size.width - inset, size.height - inset))
         }
 
         Row(
@@ -885,9 +1137,9 @@ fun WideVirusShieldCard(
                 verticalArrangement = Arrangement.Center
             ) {
                 Surface(
-                    color = accent.copy(alpha = 0.16f),
+                    color = accent.copy(alpha = 0.18f),
                     shape = RoundedCornerShape(50),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = 0.45f))
+                    border = BorderStroke(1.dp, accent.copy(alpha = 0.55f))
                 ) {
                     Text(
                         text = CleanerModule.VIRUS.tag,
@@ -916,18 +1168,18 @@ fun WideVirusShieldCard(
             Spacer(modifier = Modifier.width(10.dp))
 
             Surface(
-                color = accent.copy(alpha = 0.2f),
+                color = accent.copy(alpha = 0.24f),
                 shape = RoundedCornerShape(14.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = 0.7f))
+                border = BorderStroke(1.2.dp, Brush.linearGradient(listOf(accent, SolarAmber.copy(alpha = 0.7f))))
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier.padding(horizontal = 13.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = "SCAN",
                         style = MaterialTheme.typography.labelLarge,
-                        color = accent
+                        color = TextPrimary
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Icon(
@@ -950,45 +1202,68 @@ fun ModuleTopBar(
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Row(
+    Surface(
+        color = ObsidianCard.copy(alpha = 0.85f),
+        shape = RoundedCornerShape(22.dp),
+        border = BorderStroke(
+            1.1.dp,
+            Brush.horizontalGradient(listOf(accent.copy(alpha = 0.55f), CyberBorderMuted, accent.copy(alpha = 0.35f)))
+        ),
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
-        IconButton(
-            onClick = onBack,
+        Row(
             modifier = Modifier
-                .minimumInteractiveComponentSize()
-                .clip(CircleShape)
-                .background(ObsidianCard)
-                .border(1.dp, CyberBorderMuted, CircleShape)
-                .testTag("module_back_button")
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = stringResource(R.string.back_cd),
-                tint = TextPrimary
-            )
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .clip(CircleShape)
+                    .background(ObsidianVoid.copy(alpha = 0.85f))
+                    .border(1.1.dp, accent.copy(alpha = 0.45f), CircleShape)
+                    .testTag("module_back_button")
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.back_cd),
+                    tint = TextPrimary
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(accent)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = tag,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = accent,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.headlineMedium.copy(fontSize = 18.5.sp),
+                    color = TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            AzrCyberEmblem(size = 40.dp)
         }
-
-        Spacer(modifier = Modifier.width(14.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = tag,
-                style = MaterialTheme.typography.labelSmall,
-                color = accent
-            )
-            Text(
-                text = title,
-                style = MaterialTheme.typography.headlineMedium,
-                color = TextPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-
-        AzrCyberEmblem(size = 40.dp)
     }
 }

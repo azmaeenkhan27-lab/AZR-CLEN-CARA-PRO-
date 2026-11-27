@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -75,6 +76,7 @@ import com.example.model.RiskLevel
 import com.example.model.VirusScanFinding
 import com.example.ui.AzroiaUiState
 import com.example.ui.components.CyberBackdrop
+import com.example.ui.components.CyberGlassCard
 import com.example.ui.components.ModuleTopBar
 import com.example.ui.components.VirusDestructionReportCard
 import com.example.ui.components.ZeroVirusDestroyCoreCanvas
@@ -157,17 +159,14 @@ fun ZeroVirusScreen(
             ) {
                 // 1. Zero Virus Internal Destroyer Core + Auto-Destroy Controls
                 item {
-                    Surface(
-                        color = ObsidianCard,
-                        shape = RoundedCornerShape(24.dp),
-                        border = BorderStroke(
-                            1.2.dp,
-                            when {
-                                uiState.isNeutralizingThreats -> SolarAmber.copy(alpha = 0.7f)
-                                sec.lastScanCompleted && activeUnneutralized == 0 -> EmeraldPulse.copy(alpha = 0.65f)
-                                else -> ElectricCrimson.copy(alpha = 0.6f)
-                            }
-                        )
+                    val virusHeroAccent = when {
+                        uiState.isNeutralizingThreats -> SolarAmber
+                        sec.lastScanCompleted && activeUnneutralized == 0 -> EmeraldPulse
+                        else -> ElectricCrimson
+                    }
+                    CyberGlassCard(
+                        accent = virusHeroAccent,
+                        secondaryAccent = HyperViolet
                     ) {
                         Column(
                             modifier = Modifier
@@ -493,8 +492,8 @@ fun ZeroVirusScreen(
                             finding = finding,
                             onUninstall = {
                                 runCatching {
-                                    val intent = Intent(Intent.ACTION_DELETE).apply {
-                                        data = Uri.parse("package:${finding.packageName}")
+                                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                        data = Uri.fromParts("package", finding.packageName, null)
                                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                     }
                                     context.startActivity(intent)

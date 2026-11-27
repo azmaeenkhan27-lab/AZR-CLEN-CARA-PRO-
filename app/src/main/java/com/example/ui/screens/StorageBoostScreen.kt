@@ -95,6 +95,7 @@ import com.example.model.TempFileCategory
 import com.example.model.TempFileEntry
 import com.example.ui.AzroiaUiState
 import com.example.ui.components.CyberBackdrop
+import com.example.ui.components.CyberGlassCard
 import com.example.ui.components.ModuleTopBar
 import com.example.ui.components.SmartStorageGuardCard
 import com.example.ui.components.StorageBoostEngineCard
@@ -286,14 +287,10 @@ fun StorageBoostScreen(
 
                 // 1. Storage Sector Reactor + Rocket Launchpad Hero Card
                 item {
-                    Surface(
-                        color = ObsidianCard,
-                        shape = RoundedCornerShape(24.dp),
-                        border = BorderStroke(
-                            1.3.dp,
-                            if (storage.usedPercent >= 90) ElectricCrimson.copy(alpha = 0.72f)
-                            else SolarAmber.copy(alpha = 0.65f)
-                        ),
+                    val storageHeroAccent = if (storage.usedPercent >= 90) ElectricCrimson else SolarAmber
+                    CyberGlassCard(
+                        accent = storageHeroAccent,
+                        secondaryAccent = NeonCyan,
                         modifier = Modifier.testTag("storage_hero_card")
                     ) {
                         Column(

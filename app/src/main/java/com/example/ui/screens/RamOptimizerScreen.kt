@@ -89,6 +89,7 @@ import com.example.model.RamBoostMode
 import com.example.model.RamProcessEntry
 import com.example.ui.AzroiaUiState
 import com.example.ui.components.CyberBackdrop
+import com.example.ui.components.CyberGlassCard
 import com.example.ui.components.KernelZramTelemetryCard
 import com.example.ui.components.ModuleTopBar
 import com.example.ui.components.RamAnalyticsAndHistoryCard
@@ -247,17 +248,14 @@ fun RamOptimizerScreen(
             ) {
                 // 1. Neural Reactor Hero Card + Allocation Matrix + Boost Mode + Turbo Release CTA
                 item {
-                    Surface(
-                        color = ObsidianCard,
-                        shape = RoundedCornerShape(24.dp),
-                        border = BorderStroke(
-                            1.3.dp,
-                            if (ram.isLowMemory || ram.usedPercent >= uiState.ramPressureThresholdPercent) {
-                                ElectricCrimson.copy(alpha = 0.72f)
-                            } else {
-                                HyperViolet.copy(alpha = 0.65f)
-                            }
-                        ),
+                    val ramHeroAccent = if (ram.isLowMemory || ram.usedPercent >= uiState.ramPressureThresholdPercent) {
+                        ElectricCrimson
+                    } else {
+                        HyperViolet
+                    }
+                    CyberGlassCard(
+                        accent = ramHeroAccent,
+                        secondaryAccent = NeonCyan,
                         modifier = Modifier.testTag("ram_hero_card")
                     ) {
                         Column(
@@ -743,61 +741,7 @@ fun RamOptimizerScreen(
         }
     }
 
-    // Accessibility Prompt for Auto Deep Hibernate (Force-Stop)
-    if (uiState.showRamAccessibilityPrompt) {
-        AlertDialog(
-            onDismissRequest = onDismissRamAccessibilityPrompt,
-            containerColor = ObsidianCardElevated,
-            titleContentColor = TextPrimary,
-            textContentColor = TextSecondary,
-            icon = {
-                Icon(
-                    imageVector = Icons.Filled.AccessibilityNew,
-                    contentDescription = null,
-                    tint = ElectricCrimson,
-                    modifier = Modifier.size(32.dp)
-                )
-            },
-            title = {
-                Text(
-                    text = "Enable Auto Deep Hibernate",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                )
-            },
-            text = {
-                Text(
-                    text = "Android restricts background apps from closing heavy active services directly. Enable Azroia Auto Cleaner in Accessibility so Deep Hibernate can open App Info → Force Stop automatically and drop your phone's RAM load.",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        onDismissRamAccessibilityPrompt()
-                        runCatching {
-                            context.startActivity(
-                                Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
-                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                }
-                            )
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCrimson, contentColor = TextPrimary),
-                    modifier = Modifier.testTag("enable_ram_accessibility_button")
-                ) {
-                    Text("Open Accessibility")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = onStartGuidedHibernateFallback,
-                    modifier = Modifier.testTag("manual_hibernate_fallback_button")
-                ) {
-                    Text("Guided Force Stop", color = NeonCyan)
-                }
-            }
-        )
-    }
+    // Guided Force-Stop opens Android App Info directly without Accessibility permissions
 
     uiState.inspectedRamApp?.let { inspected ->
         RamProcessInspectorSheet(

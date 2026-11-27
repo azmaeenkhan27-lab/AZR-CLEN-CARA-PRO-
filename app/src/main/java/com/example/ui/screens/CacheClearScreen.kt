@@ -95,10 +95,13 @@ import com.example.model.CacheSelectionPreset
 import com.example.model.CleanerModule
 import com.example.ui.AzroiaUiState
 import com.example.ui.components.AppCacheInspectorSheet
+import com.example.ui.components.AppsWithCacheSummaryCard
 import com.example.ui.components.CacheAreaDistributionPanel
 import com.example.ui.components.CacheHealthAndHistoryCard
 import com.example.ui.components.CacheReactorHeroCanvas
 import com.example.ui.components.CyberBackdrop
+import com.example.ui.components.CyberGlassCard
+import com.example.ui.components.GrandTotalCleanedBanner
 import com.example.ui.components.ModuleTopBar
 import com.example.ui.components.SmartCacheGuardPanel
 import com.example.ui.components.TopCacheHogsVisualCard
@@ -257,64 +260,7 @@ fun CacheClearScreen(
         }
     }
 
-    if (uiState.showAccessibilityPrompt) {
-        AlertDialog(
-            onDismissRequest = onDismissAccessibilityPrompt,
-            containerColor = ObsidianCardElevated,
-            titleContentColor = NeonCyan,
-            textContentColor = TextPrimary,
-            icon = {
-                Icon(
-                    imageVector = Icons.Filled.AccessibilityNew,
-                    contentDescription = null,
-                    tint = NeonCyan,
-                    modifier = Modifier.size(32.dp)
-                )
-            },
-            title = {
-                Text(
-                    text = "Enable Auto Cache Cleaner",
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
-                )
-            },
-            text = {
-                Text(
-                    text = "Turn ON \"Azroia Auto Cache Cleaner\" in Android Accessibility Settings so tapping Chrome, YouTube, or Auto Clear automatically enters App Info → Storage & cache → Clear cache and returns.\n\nIt only runs during your cleanup queue and never clears personal app data.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        onDismissAccessibilityPrompt()
-                        runCatching {
-                            context.startActivity(
-                                Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
-                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                }
-                            )
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = NeonCyan,
-                        contentColor = ObsidianVoid
-                    ),
-                    modifier = Modifier.testTag("dialog_open_accessibility_button")
-                ) {
-                    Text("Open Accessibility")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = onStartSequentialClean,
-                    modifier = Modifier.testTag("dialog_manual_queue_button")
-                ) {
-                    Text("Manual Queue", color = SolarAmber)
-                }
-            }
-        )
-    }
+    // Guided App Info queue launches directly without Accessibility permissions
 
     if (uiState.showUsageAccessRequiredDialog) {
         AlertDialog(
@@ -424,19 +370,9 @@ fun CacheClearScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item {
-                    Surface(
-                        color = ObsidianCard,
-                        shape = RoundedCornerShape(24.dp),
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.5.dp,
-                            Brush.linearGradient(
-                                listOf(
-                                    NeonCyan.copy(alpha = 0.85f),
-                                    HyperViolet.copy(alpha = 0.55f),
-                                    SolarAmber.copy(alpha = 0.65f)
-                                )
-                            )
-                        )
+                    CyberGlassCard(
+                        accent = NeonCyan,
+                        secondaryAccent = SolarAmber
                     ) {
                         Column(
                             modifier = Modifier
@@ -491,7 +427,7 @@ fun CacheClearScreen(
 
                             Spacer(modifier = Modifier.height(10.dp))
 
-                            // Accumulated Cache vs Removed Cache vs Used Apps
+                            // Accumulated Cache vs Apps With Cache vs Total Cleaned
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceEvenly
@@ -502,16 +438,25 @@ fun CacheClearScreen(
                                     color = NeonCyan
                                 )
                                 CacheStatChip(
-                                    label = "REMOVED",
+                                    label = "APPS W/ CACHE",
+                                    value = "${uiState.appsWithCache.size} Apps",
+                                    color = SolarAmber
+                                )
+                                CacheStatChip(
+                                    label = "TOTAL CLEANED",
                                     value = formatBytes(uiState.totalCacheFreedSessionBytes),
                                     color = EmeraldPulse
                                 )
-                                CacheStatChip(
-                                    label = "USED APPS",
-                                    value = "${uiState.cacheEntries.size}",
-                                    color = SolarAmber
-                                )
                             }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            GrandTotalCleanedBanner(
+                                sessionCleanedBytes = uiState.sessionCleanedCacheBytes,
+                                sessionCleanedCount = uiState.sessionCleanedCount,
+                                grandTotalCleanedBytes = uiState.totalCacheFreedSessionBytes,
+                                totalHistoryCount = uiState.cacheHistory.size
+                            )
 
                             Spacer(modifier = Modifier.height(12.dp))
 
@@ -855,21 +800,11 @@ fun CacheClearScreen(
                                 )
 
                                 MethodStatusTile(
-                                    title = "Auto-Clean Method",
-                                    statusText = if (uiState.isAccessibilityServiceEnabled) "AUTO ON" else "ENABLE",
-                                    isActive = uiState.isAccessibilityServiceEnabled,
+                                    title = "Clean Engine",
+                                    statusText = "PLAY-SAFE",
+                                    isActive = true,
                                     accent = NeonCyan,
-                                    onClick = {
-                                        if (!uiState.isAccessibilityServiceEnabled) {
-                                            runCatching {
-                                                context.startActivity(
-                                                    Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
-                                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                                    }
-                                                )
-                                            }
-                                        }
-                                    },
+                                    onClick = onFlushInternalBuffers,
                                     modifier = Modifier
                                         .weight(1f)
                                         .testTag("method_status_auto_tile")
@@ -895,6 +830,37 @@ fun CacheClearScreen(
                         isFlushingBuffers = uiState.isFlushingInternalBuffers,
                         lastBufferFlushFreedBytes = uiState.lastBufferFlushFreedBytes,
                         onFlushBuffersNow = onFlushInternalBuffers
+                    )
+                }
+
+                // Live Apps With Cache & Usage Access Unlock Summary
+                item {
+                    AppsWithCacheSummaryCard(
+                        appsWithCache = uiState.appsWithCache,
+                        totalDetectedCacheBytes = uiState.totalDetectedAppCacheBytes,
+                        internalBufferBytes = uiState.internalBufferBreakdown.totalBytes,
+                        hasUsageStatsAccess = uiState.hasUsageStatsAccess,
+                        onGrantUsageAccess = {
+                            runCatching {
+                                context.startActivity(
+                                    Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                )
+                            }
+                        },
+                        onOpenRestrictedSettingsHelp = {
+                            runCatching {
+                                context.startActivity(
+                                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                        data = Uri.fromParts("package", context.packageName, null)
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                )
+                            }
+                        },
+                        onCleanSingleApp = onCleanSingleApp,
+                        onInspectApp = onInspectApp
                     )
                 }
 
@@ -1315,18 +1281,14 @@ fun CacheClearScreen(
                     }
                 }
 
-                // Auto-Clean Accessibility Service Status Banner
+                // Play-Safe Direct Buffer & Guided App Info Status Banner
                 item {
                     Surface(
-                        color = if (uiState.isAccessibilityServiceEnabled) {
-                            EmeraldPulse.copy(alpha = 0.12f)
-                        } else {
-                            ObsidianCardElevated
-                        },
+                        color = EmeraldPulse.copy(alpha = 0.12f),
                         shape = RoundedCornerShape(18.dp),
                         border = androidx.compose.foundation.BorderStroke(
                             1.dp,
-                            if (uiState.isAccessibilityServiceEnabled) EmeraldPulse.copy(alpha = 0.55f) else NeonCyan.copy(alpha = 0.55f)
+                            EmeraldPulse.copy(alpha = 0.55f)
                         )
                     ) {
                         Row(
@@ -1336,56 +1298,24 @@ fun CacheClearScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                imageVector = Icons.Filled.AccessibilityNew,
+                                imageVector = Icons.Filled.Shield,
                                 contentDescription = null,
-                                tint = if (uiState.isAccessibilityServiceEnabled) EmeraldPulse else NeonCyan,
+                                tint = EmeraldPulse,
                                 modifier = Modifier.size(26.dp)
                             )
                             Spacer(modifier = Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = if (uiState.isAccessibilityServiceEnabled) {
-                                        "Auto-Cache Engine: ACTIVE"
-                                    } else {
-                                        "Enable Auto-Clean Accessibility"
-                                    },
+                                    text = "Play-Safe Cache Engine: ACTIVE",
                                     style = MaterialTheme.typography.titleMedium,
-                                    color = if (uiState.isAccessibilityServiceEnabled) EmeraldPulse else NeonCyan
+                                    color = EmeraldPulse
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = if (uiState.isAccessibilityServiceEnabled) {
-                                        "Tapping Chrome, YouTube or Auto Clear enters App Info → Storage → Clear Cache automatically."
-                                    } else {
-                                        "Turn ON to let Azroia auto-enter Chrome/YouTube Storage & clear cache automatically."
-                                    },
+                                    text = "Internal buffers & logs flush automatically; third-party apps open safely via standard Android App Info without Accessibility hooks.",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = TextSecondary
                                 )
-                            }
-                            if (!uiState.isAccessibilityServiceEnabled) {
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Button(
-                                    onClick = {
-                                        runCatching {
-                                            context.startActivity(
-                                                Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
-                                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                                }
-                                            )
-                                        }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = NeonCyan,
-                                        contentColor = ObsidianVoid
-                                    ),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                                    modifier = Modifier
-                                        .minimumInteractiveComponentSize()
-                                        .testTag("enable_accessibility_button")
-                                ) {
-                                    Text("Enable", style = MaterialTheme.typography.labelLarge)
-                                }
                             }
                         }
                     }
@@ -1627,10 +1557,10 @@ private fun AppCacheRow(
                             }
                         }
                         val sizeSubtext = when {
-                            entry.cleanState == AppCacheCleanState.CLEANED -> "Cleaned • ${formatBytes(entry.cacheBytes)}"
+                            entry.cleanState == AppCacheCleanState.CLEANED -> "Cleaned • ${formatBytes(entry.cacheBytes)} left"
                             entry.cacheBytes > 0L -> "${formatBytes(entry.cacheBytes)} ($sharePercent%)"
-                            hasUsageAccess -> "0 B"
-                            else -> if (isAutoCleanEnabled) "Auto" else "Tap"
+                            hasUsageAccess -> "0 B cache"
+                            else -> "Grant Usage"
                         }
                         Text(
                             text = sizeSubtext,

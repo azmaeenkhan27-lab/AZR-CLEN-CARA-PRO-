@@ -71,6 +71,8 @@ data class AzroiaUiState(
     val selectedCacheMode: CacheCleanMode = CacheCleanMode.SMART_USED,
     val isFlushingInternalBuffers: Boolean = false,
     val lastBufferFlushFreedBytes: Long = 0L,
+    val sessionCleanedCacheBytes: Long = 0L,
+    val sessionCleanedCount: Int = 0,
 
     // Module 2: RAM Optimization
     val ramTelemetry: RamTelemetry = RamTelemetry(),
@@ -130,7 +132,18 @@ data class AzroiaUiState(
     val batteryStatusMessage: String? = null
 ) {
     val totalDetectedAppCacheBytes: Long
-        get() = cacheEntries.sumOf { it.cacheBytes }.coerceAtLeast(ownAppCacheBytes)
+        get() {
+            val thirdParty = cacheEntries
+                .filter { it.packageName != "com.aistudio.azroiacare.qxmkvp" }
+                .sumOf { it.cacheBytes }
+            val localTotal = maxOf(ownAppCacheBytes, internalBufferBreakdown.totalBytes)
+            return (thirdParty + localTotal).coerceAtLeast(0L)
+        }
+
+    val appsWithCache: List<AppCacheEntry>
+        get() = cacheEntries
+            .filter { it.cacheBytes > 0L }
+            .sortedByDescending { it.cacheBytes }
 
     val cacheAreaBreakdown: CacheAreaBreakdown
         get() {
@@ -333,20 +346,13 @@ class CleanerViewModel(application: Application) : AndroidViewModel(application)
 
                 if (remainingApps.isNotEmpty() && nextIdx < state.ramHibernateQueueTotal) {
                     val nextApp = remainingApps.first()
-                    if (accessibilityEnabled) {
-                        AutoCacheCoordinator.beginAppStep(
-                            nextApp.packageName,
-                            nextApp.appName,
-                            AutoAutomationMode.FORCE_STOP_RAM
-                        )
-                    }
                     _uiState.update {
                         it.copy(
                             ramTelemetry = refreshedRam,
                             ramHibernateQueueIndex = nextIdx,
                             ramHibernateQueuePackages = remainingApps.map { app -> app.packageName },
                             activeHibernateApp = nextApp,
-                            pendingOpenSettingsPackage = if (accessibilityEnabled) nextApp.packageName else null,
+                            pendingOpenSettingsPackage = nextApp.packageName,
                             ramStatusMessage = "Hibernated ${activeHibernate.appName} • Next: ${nextApp.appName} (${nextIdx + 1}/${state.ramHibernateQueueTotal})"
                         )
                     }
@@ -429,25 +435,26 @@ class CleanerViewModel(application: Application) : AndroidViewModel(application)
                 }
                 val nextIdx = state.guidedQueueIndex + 1
 
+                val newSessionBytes = _uiState.value.sessionCleanedCacheBytes + freedDelta
+                val newSessionCount = _uiState.value.sessionCleanedCount + 1
+
                 if (remaining.isNotEmpty() && nextIdx < state.guidedQueueTotal) {
                     val nextApp = remaining.first()
-                    val autoContinue = state.isAutoCleanMode && accessibilityEnabled
-                    if (autoContinue) {
-                        AutoCacheCoordinator.beginAppStep(nextApp.packageName, nextApp.appName)
-                    }
                     _uiState.update {
                         it.copy(
                             cacheEntries = updatedEntries,
                             cacheHistory = updatedHistory,
                             totalCacheFreedSessionBytes = newRemovedTotal,
+                            sessionCleanedCacheBytes = newSessionBytes,
+                            sessionCleanedCount = newSessionCount,
                             guidedQueueIndex = nextIdx,
                             guidedQueuePackages = remaining.map { entry -> entry.packageName },
                             activeGuidedApp = nextApp,
-                            pendingOpenSettingsPackage = if (autoContinue) nextApp.packageName else null,
+                            pendingOpenSettingsPackage = nextApp.packageName,
                             cacheStatusMessage = if (freedDelta > 0L) {
-                                "${activeGuided.appName}: Freed ${formatBytes(freedDelta)} • Next: ${nextApp.appName}"
+                                "${activeGuided.appName}: Freed ${formatBytes(freedDelta)} • Total Cleaned: ${formatBytes(newRemovedTotal)} • Next: ${nextApp.appName}"
                             } else {
-                                "${activeGuided.appName} checked • Next: ${nextApp.appName}"
+                                "${activeGuided.appName} checked • Total Cleaned: ${formatBytes(newRemovedTotal)} • Next: ${nextApp.appName}"
                             }
                         )
                     }
@@ -459,6 +466,8 @@ class CleanerViewModel(application: Application) : AndroidViewModel(application)
                             cacheEntries = updatedEntries,
                             cacheHistory = updatedHistory,
                             totalCacheFreedSessionBytes = newRemovedTotal,
+                            sessionCleanedCacheBytes = newSessionBytes,
+                            sessionCleanedCount = newSessionCount,
                             isGuidedQueueActive = false,
                             isAutoCleanMode = false,
                             guidedQueuePackages = emptyList(),
@@ -466,9 +475,9 @@ class CleanerViewModel(application: Application) : AndroidViewModel(application)
                             activeGuidedApp = null,
                             pendingOpenSettingsPackage = null,
                             cacheStatusMessage = if (newRemovedTotal > 0L) {
-                                "$modeDoneLabel Complete & Stopped • Total Removed: ${formatBytes(newRemovedTotal)}"
+                                "$modeDoneLabel Complete • Session: ${formatBytes(newSessionBytes)} • Grand Total Cleaned: ${formatBytes(newRemovedTotal)} ($newSessionCount app/sweep)"
                             } else {
-                                "$modeDoneLabel Complete & Stopped!"
+                                "$modeDoneLabel Complete • Checked $newSessionCount app(s)!"
                             }
                         )
                     }
@@ -620,8 +629,8 @@ class CleanerViewModel(application: Application) : AndroidViewModel(application)
             } else {
                 _uiState.value.cacheHistory
             }
-            val queueable = entries.filter { it.packageName != getApplication<Application>().packageName && !it.isWhitelisted }
-            val summary = "Freed ${formatBytes(ownFreed)} locally • ${queueable.size} apps indexed for Cache Clear"
+            val appsStillWithCache = entries.count { it.cacheBytes > 0L }
+            val summary = "Cleaned ${formatBytes(ownFreed)} now • Grand Total Cleaned: ${formatBytes(newRemovedTotal)} • $appsStillWithCache app(s) have cache"
 
             _uiState.update {
                 it.copy(
@@ -630,6 +639,8 @@ class CleanerViewModel(application: Application) : AndroidViewModel(application)
                     ownAppCacheBytes = refreshedOwn,
                     internalBufferBreakdown = internalBreakdown,
                     totalCacheFreedSessionBytes = newRemovedTotal,
+                    sessionCleanedCacheBytes = it.sessionCleanedCacheBytes + ownFreed,
+                    sessionCleanedCount = it.sessionCleanedCount + if (ownFreed > 0L) 1 else 0,
                     cacheHistory = updatedHistory,
                     cacheStatusMessage = summary
                 )
@@ -679,16 +690,6 @@ class CleanerViewModel(application: Application) : AndroidViewModel(application)
                 )
             }
 
-            if (!accessibilityEnabled) {
-                _uiState.update {
-                    it.copy(
-                        showAccessibilityPrompt = true,
-                        cacheStatusMessage = "Enable Azroia Auto Cache Cleaner in Accessibility to auto-clear every app"
-                    )
-                }
-                return@launch
-            }
-
             val state = _uiState.value
             val cachedCandidates = state.cacheEntries.filter {
                 it.packageName != context.packageName &&
@@ -715,18 +716,19 @@ class CleanerViewModel(application: Application) : AndroidViewModel(application)
             }
 
             val first = queue.first()
-            AutoCacheCoordinator.beginAppStep(first.packageName, first.appName)
+            AutoCacheCoordinator.stopAll()
             _uiState.update {
                 it.copy(
                     isGuidedQueueActive = true,
-                    isAutoCleanMode = true,
+                    isAutoCleanMode = false,
+                    showAccessibilityPrompt = false,
                     guidedQueueIndex = 0,
                     guidedQueueTotal = queue.size,
                     guidedQueuePackages = queue.map { entry -> entry.packageName },
-                    guidedQueueModeLabel = "Auto Cache Clean",
+                    guidedQueueModeLabel = "Guided Cache Clean",
                     activeGuidedApp = first,
                     pendingOpenSettingsPackage = first.packageName,
-                    cacheStatusMessage = "Auto-cleaning ${first.appName} (1/${queue.size})…"
+                    cacheStatusMessage = "Opening ${first.appName} (1/${queue.size}) → Storage → Clear Cache"
                 )
             }
         }
@@ -800,31 +802,20 @@ class CleanerViewModel(application: Application) : AndroidViewModel(application)
                 return@launch
             }
 
-            if (!accessibilityEnabled) {
-                _uiState.update {
-                    it.copy(
-                        guidedQueuePackages = queue.map { entry -> entry.packageName },
-                        guidedQueueModeLabel = "Used & Cached Clean",
-                        showAccessibilityPrompt = true,
-                        cacheStatusMessage = "Ready to clean ${queue.size} used & cached app(s) — enable Auto Cleaner or tap Manual Queue"
-                    )
-                }
-                return@launch
-            }
-
             val first = queue.first()
-            AutoCacheCoordinator.beginAppStep(first.packageName, first.appName)
+            AutoCacheCoordinator.stopAll()
             _uiState.update {
                 it.copy(
                     isGuidedQueueActive = true,
-                    isAutoCleanMode = true,
+                    isAutoCleanMode = false,
+                    showAccessibilityPrompt = false,
                     guidedQueueIndex = 0,
                     guidedQueueTotal = queue.size,
                     guidedQueuePackages = queue.map { entry -> entry.packageName },
                     guidedQueueModeLabel = "Used & Cached Clean",
                     activeGuidedApp = first,
                     pendingOpenSettingsPackage = first.packageName,
-                    cacheStatusMessage = "Cleaning used app ${first.appName} (1/${queue.size}) • Auto-stops when done"
+                    cacheStatusMessage = "Opening ${first.appName} (1/${queue.size}) → Storage → Clear Cache"
                 )
             }
         }
@@ -958,15 +949,18 @@ class CleanerViewModel(application: Application) : AndroidViewModel(application)
             val refreshedEntries = repo.loadInstalledAppCacheEntries()
             delay(260L)
             _uiState.update { state ->
+                val grandTotal = maxOf(state.totalCacheFreedSessionBytes, newRemovedTotal)
                 state.copy(
                     isFlushingInternalBuffers = false,
                     ownAppCacheBytes = refreshedOwn,
                     internalBufferBreakdown = result.breakdown,
-                    totalCacheFreedSessionBytes = maxOf(state.totalCacheFreedSessionBytes, newRemovedTotal),
+                    totalCacheFreedSessionBytes = grandTotal,
+                    sessionCleanedCacheBytes = state.sessionCleanedCacheBytes + result.freedBytes,
+                    sessionCleanedCount = state.sessionCleanedCount + if (result.filesClearedCount > 0 || result.freedBytes > 0L) 1 else 0,
                     lastBufferFlushFreedBytes = result.freedBytes,
                     cacheHistory = refreshedHistory,
                     cacheEntries = refreshedEntries,
-                    cacheStatusMessage = "Deep Buffer Flush complete • Freed ${formatBytes(result.freedBytes)} (${result.filesClearedCount} buffer files, SQLite trimmed)"
+                    cacheStatusMessage = "Flushed ${formatBytes(result.freedBytes)} (${result.filesClearedCount} buffers) • Grand Total Cleaned: ${formatBytes(grandTotal)}"
                 )
             }
         }
@@ -1041,29 +1035,20 @@ class CleanerViewModel(application: Application) : AndroidViewModel(application)
             }
             return
         }
-        val accessibilityEnabled = AutoCacheCoordinator.isAccessibilityServiceEnabled(context)
-        if (!accessibilityEnabled) {
-            _uiState.update {
-                it.copy(
-                    showAccessibilityPrompt = true,
-                    cacheStatusMessage = "Enable Auto Cache Cleaner to clean ${overLimit.size} over-limit app(s)"
-                )
-            }
-            return
-        }
         val first = overLimit.first()
-        AutoCacheCoordinator.beginAppStep(first.packageName, first.appName)
+        AutoCacheCoordinator.stopAll()
         _uiState.update {
             it.copy(
                 isGuidedQueueActive = true,
-                isAutoCleanMode = true,
+                isAutoCleanMode = false,
+                showAccessibilityPrompt = false,
                 guidedQueueIndex = 0,
                 guidedQueueTotal = overLimit.size,
                 guidedQueuePackages = overLimit.map { entry -> entry.packageName },
                 guidedQueueModeLabel = "Over-Limit Clean",
                 activeGuidedApp = first,
                 pendingOpenSettingsPackage = first.packageName,
-                cacheStatusMessage = "Cleaning Over-Limit: ${first.appName} (1/${overLimit.size})…"
+                cacheStatusMessage = "Opening Over-Limit: ${first.appName} (1/${overLimit.size}) → Storage → Clear Cache"
             )
         }
     }
@@ -1095,16 +1080,6 @@ class CleanerViewModel(application: Application) : AndroidViewModel(application)
                 )
             }
 
-            if (!accessibilityEnabled) {
-                _uiState.update {
-                    it.copy(
-                        showAccessibilityPrompt = true,
-                        cacheStatusMessage = "Enable Azroia Auto Cache Cleaner to clean selected apps automatically"
-                    )
-                }
-                return@launch
-            }
-
             val queue = _uiState.value.cacheEntries.filter {
                 it.packageName != context.packageName &&
                     !it.isWhitelisted &&
@@ -1113,24 +1088,25 @@ class CleanerViewModel(application: Application) : AndroidViewModel(application)
             }
             if (queue.isEmpty()) {
                 _uiState.update {
-                    it.copy(cacheStatusMessage = "Select at least one non-shielded app below to auto-clean!")
+                    it.copy(cacheStatusMessage = "Select at least one non-shielded app below to clean!")
                 }
                 return@launch
             }
 
             val first = queue.first()
-            AutoCacheCoordinator.beginAppStep(first.packageName, first.appName)
+            AutoCacheCoordinator.stopAll()
             _uiState.update {
                 it.copy(
                     isGuidedQueueActive = true,
-                    isAutoCleanMode = true,
+                    isAutoCleanMode = false,
+                    showAccessibilityPrompt = false,
                     guidedQueueIndex = 0,
                     guidedQueueTotal = queue.size,
                     guidedQueuePackages = queue.map { entry -> entry.packageName },
                     guidedQueueModeLabel = "Selected Apps Clean",
                     activeGuidedApp = first,
                     pendingOpenSettingsPackage = first.packageName,
-                    cacheStatusMessage = "Auto-cleaning ${first.appName} (1/${queue.size})…"
+                    cacheStatusMessage = "Opening ${first.appName} (1/${queue.size}) → Storage → Clear Cache"
                 )
             }
         }
@@ -1438,27 +1414,12 @@ class CleanerViewModel(application: Application) : AndroidViewModel(application)
             return
         }
 
-        val accessibilityEnabled = AutoCacheCoordinator.isAccessibilityServiceEnabled(context)
-        if (!accessibilityEnabled) {
-            _uiState.update {
-                it.copy(
-                    ramHibernateQueuePackages = activeTargets.map { entry -> entry.packageName },
-                    showRamAccessibilityPrompt = true,
-                    ramStatusMessage = "Enable Azroia Auto Engine or use Guided Force-Stop to drop stubborn RAM!"
-                )
-            }
-            return
-        }
-
         val first = activeTargets.first()
-        AutoCacheCoordinator.beginAppStep(
-            packageName = first.packageName,
-            appName = first.appName,
-            automationMode = AutoAutomationMode.FORCE_STOP_RAM
-        )
+        AutoCacheCoordinator.stopAll()
         _uiState.update {
             it.copy(
                 isRamHibernateQueueActive = true,
+                showRamAccessibilityPrompt = false,
                 ramHibernateQueueIndex = 0,
                 ramHibernateQueueTotal = activeTargets.size,
                 ramHibernateQueuePackages = activeTargets.map { entry -> entry.packageName },
@@ -1466,7 +1427,7 @@ class CleanerViewModel(application: Application) : AndroidViewModel(application)
                 ramHibernateBeforeAvailBytes = state.ramTelemetry.availableBytes,
                 ramHibernateBeforePercent = state.ramTelemetry.usedPercent,
                 pendingOpenSettingsPackage = first.packageName,
-                ramStatusMessage = "Deep Hibernating ${first.appName} (1/${activeTargets.size})…"
+                ramStatusMessage = "Opening ${first.appName} (1/${activeTargets.size}) → Tap Force Stop → OK"
             )
         }
     }

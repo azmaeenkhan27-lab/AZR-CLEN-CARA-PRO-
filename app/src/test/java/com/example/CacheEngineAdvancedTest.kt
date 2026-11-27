@@ -117,13 +117,20 @@ class CacheEngineAdvancedTest {
 
         val state = AzroiaUiState(
             cacheEntries = listOf(heavyApp, dormantApp, shieldedApp, cleanedApp),
-            cacheAlertThresholdBytes = 150L * 1024L * 1024L
+            cacheAlertThresholdBytes = 150L * 1024L * 1024L,
+            sessionCleanedCacheBytes = 128L * 1024L * 1024L,
+            sessionCleanedCount = 2
         )
 
         assertEquals(1, state.overThresholdApps.size)
         assertEquals("com.google.android.youtube", state.overThresholdApps.first().packageName)
         assertEquals(1, state.dormantCachedApps.size)
         assertEquals("com.example.dormant", state.dormantCachedApps.first().packageName)
+        assertEquals(4, state.appsWithCache.size)
+        assertEquals("com.android.chrome", state.appsWithCache.first().packageName)
+        assertTrue(state.totalDetectedAppCacheBytes >= 1_210L * 1024L * 1024L)
+        assertEquals(128L * 1024L * 1024L, state.sessionCleanedCacheBytes)
+        assertEquals(2, state.sessionCleanedCount)
         assertEquals(CacheCleanMode.SMART_USED, state.selectedCacheMode)
         assertTrue(state.cacheHealthScore in 25..100)
     }

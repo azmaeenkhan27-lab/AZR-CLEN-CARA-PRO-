@@ -24,3 +24,11 @@ val EmeraldPulse = Color(0xFF10F5A0)    // VoltCore Battery Guard (Mint Emerald)
 val RoyalSapphire = Color(0xFF2563EB)
 val WarningOrange = Color(0xFFFF8A00)
 val DeepGlassOverlay = Color(0xCC0A132E)
+
+// Luxury Glassmorphic & Specular Bevel Tokens
+val ObsidianGlassTop = Color(0xFF172756)
+val ObsidianGlassBottom = Color(0xFF060C1F)
+val CyberBevelHighlight = Color(0x4DFFFFFF)
+val ElectricIndigo = Color(0xFF4F46E5)
+val PlasmaTeal = Color(0xFF06B6D4)
+

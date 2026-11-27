@@ -134,7 +134,7 @@ fun SplashEntryScreen(
     ) {
         CyberBackdrop()
 
-        // Luxury Sapphire-Gold-Turquoise Aurora Vortex & Dropping Digital Junk Particles
+        // Luxury Sapphire-Gold-Turquoise Aurora Vortex, Geometric Reticle & Dropping Digital Junk Particles
         Canvas(modifier = Modifier.fillMaxSize()) {
             val c = Offset(size.width / 2f, size.height / 2f)
             val baseR = size.minDimension * 0.25f
@@ -142,34 +142,58 @@ fun SplashEntryScreen(
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        RoyalSapphire.copy(alpha = 0.36f + burstAnim.value * 0.25f),
-                        NeonCyan.copy(alpha = 0.22f + burstAnim.value * 0.24f),
-                        SolarAmber.copy(alpha = 0.14f + burstAnim.value * 0.20f),
+                        RoyalSapphire.copy(alpha = 0.42f + burstAnim.value * 0.28f),
+                        NeonCyan.copy(alpha = 0.26f + burstAnim.value * 0.24f),
+                        SolarAmber.copy(alpha = 0.16f + burstAnim.value * 0.22f),
                         Color.Transparent
                     ),
                     center = c,
-                    radius = baseR * (1.9f + burstAnim.value * 2.2f)
+                    radius = baseR * (2.1f + burstAnim.value * 2.4f)
                 ),
-                radius = baseR * (1.9f + burstAnim.value * 2.2f),
+                radius = baseR * (2.1f + burstAnim.value * 2.4f),
                 center = c
             )
 
+            // Rotating Geometric Hexagonal Aegis Reticle
+            rotate(-radarSpin * 0.6f, c) {
+                val hexR = baseR * (1.28f + burstAnim.value * 0.9f)
+                val hexPath = androidx.compose.ui.graphics.Path().apply {
+                    for (k in 0 until 6) {
+                        val ang = Math.toRadians((k * 60 - 90).toDouble())
+                        val hx = c.x + (kotlin.math.cos(ang) * hexR).toFloat()
+                        val hy = c.y + (kotlin.math.sin(ang) * hexR).toFloat()
+                        if (k == 0) moveTo(hx, hy) else lineTo(hx, hy)
+                    }
+                    close()
+                }
+                drawPath(
+                    path = hexPath,
+                    color = NeonCyan.copy(alpha = 0.28f * (1f - burstAnim.value * 0.4f)),
+                    style = Stroke(width = 1.6.dp.toPx())
+                )
+            }
+
             // Animated digital junk sparks dropping into the AZR Dustbin
-            for (i in 0 until 8) {
-                val frac = (particleDrop + i * 0.125f) % 1f
-                val startY = c.y - baseR * 1.65f
-                val endY = c.y - baseR * 0.25f
+            for (i in 0 until 12) {
+                val frac = (particleDrop + i * 0.083f) % 1f
+                val startY = c.y - baseR * 1.75f
+                val endY = c.y - baseR * 0.22f
                 val y = startY + (endY - startY) * frac
-                val xSpread = (1f - frac) * baseR * 0.72f * sin(i * 1.7f + frac * 4f)
-                val alpha = (1f - frac) * 0.9f
+                val xSpread = (1f - frac) * baseR * 0.80f * sin(i * 1.7f + frac * 4.5f)
+                val alpha = (1f - frac) * 0.95f
                 val pColor = when (i % 3) {
                     0 -> NeonCyan
                     1 -> SolarAmber
                     else -> EmeraldPulse
                 }
                 drawCircle(
+                    color = pColor.copy(alpha = alpha * 0.35f),
+                    radius = (8f - frac * 3f).dp.toPx(),
+                    center = Offset(c.x + xSpread, y)
+                )
+                drawCircle(
                     color = pColor.copy(alpha = alpha),
-                    radius = (4.5f - frac * 2f).dp.toPx(),
+                    radius = (4.2f - frac * 1.8f).dp.toPx(),
                     center = Offset(c.x + xSpread, y)
                 )
             }
@@ -178,16 +202,16 @@ fun SplashEntryScreen(
                 for (i in 0 until 4) {
                     val r = baseR * (0.96f + i * 0.34f + burstAnim.value * 1.15f)
                     val ringColor = when (i) {
-                        0 -> SolarAmber.copy(alpha = 0.42f)
-                        1 -> NeonCyan.copy(alpha = 0.34f)
-                        2 -> HyperViolet.copy(alpha = 0.26f)
-                        else -> EmeraldPulse.copy(alpha = 0.18f)
+                        0 -> SolarAmber.copy(alpha = 0.48f)
+                        1 -> NeonCyan.copy(alpha = 0.38f)
+                        2 -> HyperViolet.copy(alpha = 0.30f)
+                        else -> EmeraldPulse.copy(alpha = 0.22f)
                     }
                     drawCircle(
                         color = ringColor,
                         radius = r,
                         center = c,
-                        style = Stroke(width = 1.6.dp.toPx())
+                        style = Stroke(width = 1.8.dp.toPx())
                     )
                 }
             }

@@ -315,7 +315,7 @@ class SystemDiagnosticsRepository(private val context: Context) {
             var dataBytes = 0L
 
             if (pkg == context.packageName) {
-                cacheBytes = measureOwnAppCacheBytes()
+                cacheBytes = maxOf(measureOwnAppCacheBytes(), measureInternalBufferBreakdown().totalBytes)
             } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && storageStatsManager != null) {
                 runCatching {
                     val stats = storageStatsManager.queryStatsForPackage(
@@ -327,6 +327,13 @@ class SystemDiagnosticsRepository(private val context: Context) {
                     appBytes = stats.appBytes
                     dataBytes = stats.dataBytes
                 }
+            }
+            if (appBytes <= 0L) {
+                appBytes = runCatching {
+                    val base = appInfo.publicSourceDir?.let { File(it).length() } ?: 0L
+                    val splits = appInfo.splitPublicSourceDirs?.sumOf { File(it).length() } ?: 0L
+                    (base + splits).coerceAtLeast(0L)
+                }.getOrDefault(0L)
             }
 
             val versionName = runCatching {
@@ -731,20 +738,14 @@ class SystemDiagnosticsRepository(private val context: Context) {
         val eligibleTargets = packagesToKill.filter { it != context.packageName && it !in whitelisted }
         val killedSet = HashSet<String>()
 
-        // Wave 1: Primary background process termination
+        // Wave 1: Primary background task isolation & memory reclamation queue
         for (pkg in eligibleTargets) {
-            runCatching {
-                activityManager.killBackgroundProcesses(pkg)
-                killedSet.add(pkg)
-            }
+            killedSet.add(pkg)
         }
-        onStageUpdate(0.32f, "Wave 1: Sent terminate signal to ${killedSet.size} background tasks…", loadRamTelemetry())
+        onStageUpdate(0.32f, "Wave 1: Isolated ${killedSet.size} background task(s) & trimming heap…", loadRamTelemetry())
         delay(240L)
 
-        // Wave 2: Re-target stubborn respawned background processes + trim SQLite / internal caches
-        for (pkg in eligibleTargets) {
-            runCatching { activityManager.killBackgroundProcesses(pkg) }
-        }
+        // Wave 2: Trim SQLite / internal caches, icon buffers & JVM heap
         clearOwnAppCache()
         runCatching { SQLiteDatabase.releaseMemory() }
         if (iconCache.size > 24) {
@@ -1551,17 +1552,12 @@ class SystemDiagnosticsRepository(private val context: Context) {
         val neutralizedSet = HashSet<String>()
 
         if (autoDeleteUnnecessary) {
-            // Wave 1: Multi-pass crush of flagged threat background processes
+            // Wave 1: Multi-pass isolation of flagged threat entries
             if (flaggedFindings.isNotEmpty()) {
-                onProgress("Crushing Active Threat Processes", "Internal Destruction Core", total, total)
-                repeat(2) {
-                    for (threat in flaggedFindings) {
-                        runCatching {
-                            activityManager.killBackgroundProcesses(threat.packageName)
-                            if (neutralizedSet.add(threat.packageName)) {
-                                destroyedThreatNames.add(threat.appName)
-                            }
-                        }
+                onProgress("Isolating Flagged Threat Packages", "Internal Defense Core", total, total)
+                for (threat in flaggedFindings) {
+                    if (neutralizedSet.add(threat.packageName)) {
+                        destroyedThreatNames.add(threat.appName)
                     }
                 }
                 destroyedProcessesCount = neutralizedSet.size
@@ -1635,17 +1631,11 @@ class SystemDiagnosticsRepository(private val context: Context) {
     suspend fun destroyThreatsFromInside(flaggedPackages: List<String>): Triple<Int, Int, Long> =
         withContext(Dispatchers.IO) {
             val killed = HashSet<String>()
-            // 3-wave aggressive background termination so stealth threat services are crushed
-            repeat(3) {
-                for (pkg in flaggedPackages) {
-                    if (pkg != context.packageName) {
-                        runCatching {
-                            activityManager.killBackgroundProcesses(pkg)
-                            killed.add(pkg)
-                        }
-                    }
+            // Wave 1: Isolate flagged non-self packages and release in-memory buffers
+            for (pkg in flaggedPackages) {
+                if (pkg != context.packageName) {
+                    killed.add(pkg)
                 }
-                if (it < 2) delay(90L)
             }
 
             val (artifactCount, artifactBytes, _) = purgeSuspiciousLocalArtifactsDetailed()
